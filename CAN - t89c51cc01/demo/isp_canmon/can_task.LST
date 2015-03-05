@@ -1,0 +1,462 @@
+C51 COMPILER V9.53.0.0   CAN_TASK                                                          03/04/2015 22:27:00 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE CAN_TASK
+OBJECT MODULE PLACED IN can_task.OBJ
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE can_task.c OPTIMIZE(8,SPEED) DEFINE(KEIL) DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          /*C*****************************************************************************
+   2          * FILE_NAME         : can_task.c                                             
+   3          *----------------------------------------------------------------------------
+   4          * FILE_CREATED_BY   : BERTHY JS                                             
+   5          * FILE_CREATION_DATE: 4/05/00                                              
+   6          *----------------------------------------------------------------------------
+   7          * FILE_PURPOSE:    
+   8          *
+   9          ******************************************************************************/
+  10          /*_____ I N C L U D E - F I L E S ____________________________________________*/
+  11          #include "stdio.h"
+  12          #include "config.h"
+  13          #include "lcd_drv.h"
+  14          #include "io_task.h"
+  15          
+  16          /*_____ P R I V A T E - F U N C T I O N S - D E C L A R A T I O N ____________*/
+  17          
+  18          // Configuration for an oscillator of 12 MHZ
+  19          #define BRP_500k    0x00
+  20          #define SJW_500k    0x00
+  21          #define PRS_500k    0x02
+  22          #define PHS1_500k   0x03
+  23          #define PHS2_500k   0x03
+  24          
+  25          #define TIM_10ms    2
+  26          
+  27          
+  28          /*_____ L O C A L S __________________________________________________________*/
+  29          
+  30          can_data_t xdata data_200 = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+  31          can_data_t data_rx= {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+  32          code can_msg_t can_200 = {STD_ID(0x200), CONF_NOIDE | CONF_DLC_8, data_200};
+  33          
+  34          can_msg_t rx_data = {0x00, 0x00, data_rx};
+  35          
+  36          Uchar task_state = 0x00;
+  37          Uchar debounce_bp = 0x00;
+  38          
+  39          Uchar boot_cris;
+  40          Uchar boot_nnb;
+  41          
+  42          /*_____ P U B L I C - F U N C T I O N S ______________________________________*/
+  43          
+  44          Uchar dlc;     // DATA LENGTH FROM RX SIGNAL.
+  45          Uchar f_affichage =1;
+  46          Uchar f_start_bootloader;
+  47          
+  48          Uchar f_barg;
+  49          Uchar barg_counter;
+  50          Uchar barg_io;
+  51          
+  52          Uchar xdata line[2][17];   // DATA BUFFER FOR DISPLAY  - 2LINES. 17CHARS.
+  53          
+  54          /*F**************************************************************************
+  55          * NAME: bin_to_ascii 
+C51 COMPILER V9.53.0.0   CAN_TASK                                                          03/04/2015 22:27:00 PAGE 2   
+
+  56          *----------------------------------------------------------------------------
+  57          * PARAMS:  
+  58          * to_convert: byte to parse in ascii
+  59          *----------------------------------------------------------------------------
+  60          * PURPOSE: This function return the ascii value
+  61          *****************************************************************************/
+  62          Uchar bin_to_ascii (Uchar to_convert)
+  63          {
+  64   1        Uchar convert;
+  65   1      
+  66   1        if ((to_convert >= 0) &&
+  67   1            (to_convert <= 9)   )
+  68   1        {
+  69   2          convert = to_convert + 0x30;
+  70   2        }
+  71   1        else
+  72   1        {
+  73   2          convert = to_convert + 0x37;
+  74   2        }
+  75   1        return (convert);
+  76   1      }
+  77          
+  78          /*_____ P R I V A T E - F U N C T I O N S ____________________________________*/
+  79          
+  80          
+  81          /*F**************************************************************************
+  82          * FUNCTION_NAME: can_task_init                                            
+  83          *-------------------------------------------------------------------------
+  84          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+  85          * FUNCTION_DATE  : 4/05/00                                                 
+  86          *----------------------------------------------------------------------------
+  87          * FUNCTION_PURPOSE:                          
+  88          * FUNCTION_INPUTS : void
+  89          * FUNCTION_OUTPUTS: void                                                                                  
+             -                               
+  90          ******************************************************************************/
+  91          void can_task_init(void)
+  92          {
+  93   1        f_start_bootloader = 0;
+  94   1      
+  95   1      #ifndef DEBUG
+  96   1      
+  97   1        boot_cris  = __api_rd_CRIS();
+  98   1      
+  99   1        if (boot_cris == 0xFF)
+ 100   1        {
+ 101   2          boot_cris = 0x00;
+ 102   2        }
+ 103   1        boot_nnb   = __api_rd_NNB();
+ 104   1      
+ 105   1      #endif
+ 106   1      
+ 107   1      #ifdef DEBUG
+              
+                boot_cris  = 0x00;
+              
+                boot_nnb   = 0x02;
+              
+              #endif
+ 114   1        CAN_CONTROLLER_RESET;     
+ 115   1        CAN_IT_DISABLE;
+ 116   1        CANTIM_IT_DISABLE;
+C51 COMPILER V9.53.0.0   CAN_TASK                                                          03/04/2015 22:27:00 PAGE 3   
+
+ 117   1        RazAllMailbox();
+ 118   1        CanSetBRP(BRP_500k);
+ 119   1        CanSetSJW(SJW_500k);
+ 120   1        CanSetPRS(PRS_500k);
+ 121   1        CanSetPHS1(PHS1_500k);
+ 122   1        CanSetPHS2(PHS2_500k);
+ 123   1        CAN_CONTROLLER_ENABLE;
+ 124   1      
+ 125   1        can_rx_filt.ext = 0x00;
+ 126   1        can_rx_msk.ext  = 0x00;
+ 127   1        conf_rx         = CONF_NOIDE|CONF_NOMSK_IDE|CONF_NOBUFFER;
+ 128   1        CAN_SET_CHANNEL(CHANNEL_0);
+ 129   1        CAN_CHANNEL_IT_ENABLE(CHANNEL_0);
+ 130   1        ConfChannel_Rx();
+ 131   1      
+ 132   1      
+ 133   1        CAN_IT_ENABLE;
+ 134   1        CAN_TX_IT_ENABLE;
+ 135   1        CAN_RX_IT_ENABLE
+ 136   1        task_state = 0x00;
+ 137   1      
+ 138   1      
+ 139   1      //STRIP THE CODE BELOW TO YOUR OWN SCREEN LAYOUT 
+ 140   1        line[0][0] = 'A';
+ 141   1        line[0][1] = 'T';
+ 142   1        line[0][2] = 'M';      
+ 143   1        line[0][3] = 'E';
+ 144   1        line[0][4] = 'L';      
+ 145   1        line[0][5] = ' ';
+ 146   1        line[0][6] = 'W';      
+ 147   1        line[0][7] = 'i';
+ 148   1        line[0][8] = 'r';
+ 149   1        line[0][9] = 'e';
+ 150   1        line[0][10] = 'l';      
+ 151   1        line[0][11] = 'e';
+ 152   1        line[0][12] = 's';      
+ 153   1        line[0][13] = 's';      
+ 154   1        line[0][14] = ' ';      
+ 155   1        line[0][15] = '&';
+ 156   1        line[1][0] = 'M';
+ 157   1        line[1][1] = 'i';
+ 158   1        line[1][2] = 'c';      
+ 159   1        line[1][3] = 'r';
+ 160   1        line[1][4] = 'o';      
+ 161   1        line[1][5] = 'C';
+ 162   1        line[1][6] = 'o';      
+ 163   1        line[1][7] = 'n';
+ 164   1        line[1][8] = 't';
+ 165   1        line[1][9] = 'r';
+ 166   1        line[1][10] = 'o';      
+ 167   1        line[1][11] = 'l';
+ 168   1        line[1][12] = 'l';      
+ 169   1        line[1][13] = 'e';      
+ 170   1        line[1][14] = 'r';      
+ 171   1        line[1][15] = 's';      
+ 172   1      
+ 173   1      }
+ 174          void display(void);
+ 175          /*F**************************************************************************
+ 176          * FUNCTION_NAME: can_task                                            
+ 177          *-------------------------------------------------------------------------
+ 178          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+C51 COMPILER V9.53.0.0   CAN_TASK                                                          03/04/2015 22:27:00 PAGE 4   
+
+ 179          * FUNCTION_DATE  : 4/05/00                                                 
+ 180          *----------------------------------------------------------------------------
+ 181          * FUNCTION_PURPOSE:                          
+ 182          * FUNCTION_INPUTS : void
+ 183          * FUNCTION_OUTPUTS: void                                                                                  
+             -                               
+ 184          ******************************************************************************/
+ 185          void can_task(void)
+ 186          {
+ 187   1        if (f_start_bootloader)
+ 188   1        {
+ 189   2          TR2 = 0;
+ 190   2          ET2 = 0;
+ 191   2          __api_start_isp();
+ 192   2          while(1);
+ 193   2        }
+ 194   1      
+ 195   1        if (f_barg)
+ 196   1        {
+ 197   2          if(barg_counter++ == TIM_10ms)
+ 198   2          {
+ 199   3            barg_counter = 0;
+ 200   3            barg_io >>= 1;
+ 201   3            set_io_bg_value(barg_io);
+ 202   3          }
+ 203   2          if (barg_io == 0)
+ 204   2          {
+ 205   3            f_barg = 0;
+ 206   3          }
+ 207   2        }
+ 208   1      
+ 209   1        if (f_affichage == 1)
+ 210   1        {
+ 211   2          if(get_lcd_wr()==FALSE)
+ 212   2          {
+ 213   3            set_lcd_line(1, line[0]);
+ 214   3            f_affichage = 2;
+ 215   3          }
+ 216   2        }
+ 217   1        else if (f_affichage == 2)
+ 218   1        {
+ 219   2          if(get_lcd_wr()==FALSE)
+ 220   2          {
+ 221   3            set_lcd_line(2, line[1]);
+ 222   3            f_affichage = 0;
+ 223   3          }
+ 224   2        }
+ 225   1      
+ 226   1        switch (task_state)
+ 227   1        {
+ 228   2          case  0x00:
+ 229   2          {
+ 230   3            if (P3_3 == 0)
+ 231   3            { 
+ 232   4              debounce_bp++;
+ 233   4              if (debounce_bp == 50)
+ 234   4              {
+ 235   5                task_state = 1;
+ 236   5              }
+ 237   4            }
+ 238   3            break;
+ 239   3          }
+C51 COMPILER V9.53.0.0   CAN_TASK                                                          03/04/2015 22:27:00 PAGE 5   
+
+ 240   2          case  1:
+ 241   2          {
+ 242   3            CAN_SET_CHANNEL(CHANNEL_1);
+ 243   3            CAN_CHANNEL_IT_ENABLE(CHANNEL_1);
+ 244   3            can_tx_id     = can_200.id;
+ 245   3            conf_tx       = can_200.ctrl;
+ 246   3            pt_candata_tx = can_200.pt_donne;
+ 247   3            SendCanMsg();
+ 248   3            task_state = 2;
+ 249   3            break;
+ 250   3          }
+ 251   2          case  2:
+ 252   2        {
+ 253   3            debounce_bp = 0;
+ 254   3            break;
+ 255   3          }
+ 256   2        }
+ 257   1      }
+ 258          
+ 259          /****************************************************************************
+ 260          * FUNCTION_NAME: can_fct_it_txok                                                
+ 261          *----------------------------------------------------------------------------
+ 262          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 263          * FUNCTION_DATE  :                                                  
+ 264          *----------------------------------------------------------------------------
+ 265          * FUNCTION_PURPOSE:                                   
+ 266          * FUNCTION_INPUTS :                                                         
+ 267          * FUNCTION_OUTPUTS:                                                         
+ 268          ******************************************************************************
+ 269          * NOTE:                                                                      
+ 270          ******************************************************************************/
+ 271          void can_fct_it_txok (void)
+ 272          {
+ 273   1        channel_t channel;
+ 274   1      
+ 275   1        task_state  = 0;
+ 276   1        channel = CAN_GET_CHANNEL; 
+ 277   1        CAN_CHANNEL_IT_DISABLE(channel);  
+ 278   1      }
+ 279          
+ 280          
+ 281          
+ 282          void display(void)
+ 283          {
+ 284   1        // DELETE LINE[0] AFTER TESTING? DISPLAY OWN SENSOR ELSEWHERE IN CODE (DIFF UPDATE TIME)
+ 285   1        line[0][0] = bin_to_ascii((can_tx_id.tab[0] & 0xF0)>>4);
+ 286   1        line[0][1] = bin_to_ascii(can_tx_id.tab[0] &0x0F);
+ 287   1        line[0][2] = bin_to_ascii((can_tx_id.tab[1] & 0xF0)>>4);
+ 288   1        line[0][3] = bin_to_ascii(can_tx_id.tab[1] &0x0F);      
+ 289   1        line[0][4] = ' ';
+ 290   1        line[0][5] = ' ';      
+ 291   1        line[0][6] = ' ';
+ 292   1        line[0][7] = ' ';      
+ 293   1      
+ 294   1        line[0][8] = ' ';
+ 295   1        line[0][9] = ' ';    
+ 296   1        line[0][10] = ' ';
+ 297   1        line[0][11] = ' ';      
+ 298   1        line[0][12] = ' '; 
+ 299   1        line[0][13] = ' ';       
+ 300   1        line[0][14] = bin_to_ascii((dlc & 0xF0)>>4); 
+ 301   1        line[0][15] = bin_to_ascii(dlc & 0x0F);       
+C51 COMPILER V9.53.0.0   CAN_TASK                                                          03/04/2015 22:27:00 PAGE 6   
+
+ 302   1      
+ 303   1        
+ 304   1        // LINE[1] IS A LOAD OF if STMTS. PERSONALISE OR 1 STANDARD?
+ 305   1        if (dlc > 0)
+ 306   1        {
+ 307   2          line[1][0] = bin_to_ascii((data_rx[0] & 0xF0)>>4);
+ 308   2          line[1][1] = bin_to_ascii((data_rx[0] & 0x0F));
+ 309   2        }else
+ 310   1        {
+ 311   2          line[1][0] = ' ';
+ 312   2          line[1][1] = ' ';
+ 313   2        }
+ 314   1        if (dlc > 1)
+ 315   1        {
+ 316   2          line[1][2] = bin_to_ascii((data_rx[1] & 0xF0)>>4);
+ 317   2          line[1][3] = bin_to_ascii((data_rx[1] & 0x0F));
+ 318   2        }else
+ 319   1        {
+ 320   2          line[1][2] = ' ';
+ 321   2          line[1][3] = ' ';
+ 322   2        }
+ 323   1        if (dlc > 2)
+ 324   1        {
+ 325   2          line[1][4] = bin_to_ascii((data_rx[2] & 0xF0)>>4);
+ 326   2          line[1][5] = bin_to_ascii((data_rx[2] & 0x0F));
+ 327   2        }else
+ 328   1        {
+ 329   2          line[1][4] = ' ';
+ 330   2          line[1][5] = ' ';
+ 331   2        }
+ 332   1        if (dlc > 3)
+ 333   1        {
+ 334   2          line[1][6] = bin_to_ascii((data_rx[3] & 0xF0)>>4);
+ 335   2          line[1][7] = bin_to_ascii((data_rx[3] & 0x0F));
+ 336   2        }else
+ 337   1        {
+ 338   2          line[1][6] = ' ';
+ 339   2          line[1][7] = ' ';
+ 340   2        }
+ 341   1        if (dlc > 4)
+ 342   1        {
+ 343   2          line[1][8] = bin_to_ascii((data_rx[4] & 0xF0)>>4);
+ 344   2          line[1][9] = bin_to_ascii((data_rx[4] & 0x0F));
+ 345   2        }else
+ 346   1        {
+ 347   2          line[1][8] = ' ';
+ 348   2          line[1][9] = ' ';
+ 349   2        }
+ 350   1        if (dlc>5)
+ 351   1        {
+ 352   2          line[1][10] = bin_to_ascii((data_rx[5] & 0xF0)>>4);
+ 353   2          line[1][11] = bin_to_ascii((data_rx[5] & 0x0F));
+ 354   2        }else
+ 355   1        {
+ 356   2          line[1][10] = ' ';
+ 357   2          line[1][11] = ' ';
+ 358   2        }
+ 359   1        if (dlc>6)
+ 360   1        {
+ 361   2          line[1][12] = bin_to_ascii((data_rx[6] & 0xF0)>>4);
+ 362   2          line[1][13] = bin_to_ascii((data_rx[6] & 0x0F));
+ 363   2        }else
+C51 COMPILER V9.53.0.0   CAN_TASK                                                          03/04/2015 22:27:00 PAGE 7   
+
+ 364   1        {
+ 365   2          line[1][12] = ' ';
+ 366   2          line[1][13] = ' ';
+ 367   2        }
+ 368   1        if (dlc>7)
+ 369   1        {
+ 370   2          line[1][14] = bin_to_ascii((data_rx[7] & 0xF0)>>4);
+ 371   2          line[1][15] = bin_to_ascii((data_rx[7] & 0x0F));
+ 372   2        }else
+ 373   1        {
+ 374   2          line[1][14] = ' ';
+ 375   2          line[1][15] = ' ';
+ 376   2        }
+ 377   1      }
+ 378          
+ 379          /****************************************************************************
+ 380          * FUNCTION_NAME: can_fct_it_rxok                                                
+ 381          *----------------------------------------------------------------------------
+ 382          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 383          * FUNCTION_DATE  :                                                  
+ 384          *----------------------------------------------------------------------------
+ 385          * FUNCTION_PURPOSE:                                   
+ 386          * FUNCTION_INPUTS :                                                         
+ 387          * FUNCTION_OUTPUTS:                                                         
+ 388          ******************************************************************************
+ 389          * NOTE:                                                                      
+ 390          ******************************************************************************/
+ 391          void can_fct_it_rxok (void)
+ 392          {
+ 393   1        Uchar i;
+ 394   1      
+ 395   1        dlc = CANCONCH & MSK_CTRL_DLC;  
+ 396   1        for (i=0; i<dlc; i++)
+ 397   1        {
+ 398   2          data_rx[i] = CANMSG;
+ 399   2        }
+ 400   1        can_tx_id.std = (CANIDT1 << 3) | (CANIDT2 >> 5);;
+ 401   1      
+ 402   1        CANSTCH  = 0x00;               
+ 403   1      
+ 404   1        if ((CANIDT1 == boot_cris)&&
+ 405   1            ((CANIDT2 & 0xE0) == 0x00     )  )
+ 406   1        {
+ 407   2          if(boot_nnb == data_rx[0])
+ 408   2          {
+ 409   3            f_start_bootloader = 1;
+ 410   3          }
+ 411   2        }
+ 412   1        f_barg  =1;
+ 413   1        set_io_bg_value(0x80);
+ 414   1        barg_io = 0x80;
+ 415   1        barg_counter = 0;
+ 416   1      
+ 417   1        display ();
+ 418   1        f_affichage = 1;
+ 419   1        ENABLE_CHANNEL_RX; /* Reception enabled.*/
+ 420   1      
+ 421   1      }
+ 422          
+ 423          
+
+
+C51 COMPILER V9.53.0.0   CAN_TASK                                                          03/04/2015 22:27:00 PAGE 8   
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    983    ----
+   CONSTANT SIZE    =      8    ----
+   XDATA SIZE       =     42    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     26    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

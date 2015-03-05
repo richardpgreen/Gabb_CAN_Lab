@@ -1,0 +1,11 @@
+"can_task.obj",
+"lcd_drv.obj",
+"lcd_task.obj",
+"main.obj",
+"schedule.obj",
+".\can_lib.obj",
+".\flash_api.obj",
+"io_task.obj" 
+TO "mon_boot_can" 
+RAMSIZE(256) 
+DISABLEWARNING (16) 

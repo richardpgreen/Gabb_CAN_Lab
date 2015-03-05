@@ -1,0 +1,20 @@
+INSTALL - isp_can_monitor; Updated: 14 September 2001
+               
+
+ATMEL - Wireless and Microcontrollers 2001
+
+
+REQUIREMENTS
+------------
+This demonstration is destinated for T89C51CC01 product.
+Must be executed on the Starter kit of T89c51cc01 with a 12Mhz Cristal.
+
+
+INSTALLATION
+------------
+To download this demonstration in flash you can used FLIP software (ISP) or you must used a hardware programer.
+
+You can executed this demonstration in external memory.
+
+CONFIGURATION
+-------------

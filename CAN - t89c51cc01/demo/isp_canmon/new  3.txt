@@ -1,0 +1,8 @@
+ADCF = 0x10;
+ADCON = 0x20;
+ADCON &= ~0xF8; /* Clear the channel field ADCON[2:0] */
+ADCON |= 0x04; /* Select channel 6 */
+ADCON |= 0x08; /* Start conversion */
+while((ADCON & 0x10)!= 0x010);         //Wait for conversion to end
+ADCON &= 0xEF;
+value_converted = (ADDH << 2)+(ADDL);

@@ -1,0 +1,30 @@
+NEWS - isp_Can_monitor - 2.0.0; Updated: 14 September 2001
+
+               
+ATMEL-Wireless and Microcontrollers 
+
+
+DESCRIPTION
+-----------
+Demonstration Can monitor released.
+This program allow to monitor the CAN bus and display received frame on LCD.
+
+
+NEWS
+----
+
+
+DOWNLOAD
+--------
+This software program can download from the Atmel Wireless & Microcontroller website:
+http://www.atmel-wm.com
+
+
+CHANGES
+-------
+Version 1.0.0, 30/04/2001
+- Created
+
+Version 2.0, 14/09/2001
+- Dedicated to T89C51CC01 with CAN bootloader.
+- When received CAN message "select node", start bootloader execution

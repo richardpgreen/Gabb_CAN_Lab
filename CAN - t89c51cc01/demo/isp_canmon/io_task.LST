@@ -1,0 +1,174 @@
+C51 COMPILER V9.53.0.0   IO_TASK                                                           03/04/2015 20:41:32 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE IO_TASK
+OBJECT MODULE PLACED IN io_task.OBJ
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE io_task.c OPTIMIZE(8,SPEED) DEFINE(KEIL) DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          /*C*****************************************************************************
+   2          * FILE_NAME: TASK_IO.C                                                             
+   3          *-------------------------------------------------------------------------------
+   4          * FILE_CREATED_BY: Eric TINLOT                                                         
+   5          * $Author: jberthy $
+   6          * $Revision: 1.1.1.1 $
+   7          * $Date: 2001/04/30 14:53:59 $
+   8          *-------------------------------------------------------------------------------
+   9          * FILE_PURPOSE:  DEMOBOARD IO TASK
+  10          * FILE_CONTENTS:                                                            
+  11          *******************************************************************************/
+  12          
+  13          /* Includes     */
+  14          
+  15          #include "config.h"
+  16          #include "io_task.h" 
+  17          #include "schedule.h"
+  18          
+  19          
+  20          
+  21          Uchar state_io;
+  22          Uchar io_bg_value;
+  23          Uchar io_sw_value;
+  24          Uchar io_sw_flag;
+  25          
+  26          /* Definitions  */
+  27          
+  28          
+  29          
+  30          /* Prototypes   */
+  31          
+  32          void io_tempo(void);
+  33          void set_io_sw_flag(void);
+  34          
+  35          /*
+  36          ** ----------------------------------------------------------------------------
+  37          ** task_io_init  
+  38          ** ----------------------------------------------------------------------------
+  39          ** Inputs: none
+  40          ** Outputs: none 
+  41          ** ----------------------------------------------------------------------------
+  42          */
+  43          
+  44          void task_io_init(void)
+  45          {
+  46   1        state_io = IO_WRITE_BARGRAPH;
+  47   1        io_bg_value = 0;
+  48   1        clr_io_sw_flag();
+  49   1      } 
+  50          
+  51          
+  52          /*
+  53          ** ----------------------------------------------------------------------------
+  54          ** task_io 
+  55          ** ----------------------------------------------------------------------------
+C51 COMPILER V9.53.0.0   IO_TASK                                                           03/04/2015 20:41:32 PAGE 2   
+
+  56          ** Inputs: none 
+  57          ** Outputs: none
+  58          ** ----------------------------------------------------------------------------
+  59          ** Comments: 
+  60          ** ----------------------------------------------------------------------------
+  61          */
+  62          
+  63          void task_io(void)
+  64          {
+  65   1        switch(state_io)
+  66   1        {
+  67   2      
+  68   2          case IO_WRITE_BARGRAPH:
+  69   2          { 
+  70   3            P1 = io_bg_value;  
+  71   3            BARGRAPH_ENABLE;   
+  72   3            io_tempo();
+  73   3            BARGRAPH_DISABLE;
+  74   3            break;
+  75   3          }
+  76   2         
+  77   2          default:
+  78   2          {
+  79   3            state_io = IO_WRITE_BARGRAPH;
+  80   3            break;  
+  81   3          }
+  82   2        }
+  83   1      
+  84   1      }
+  85          
+  86          
+  87          
+  88          void io_tempo(void)
+  89          {
+  90   1        Uchar i;
+  91   1        for(i=0; i<TEMPO_IO_15us; i++);
+  92   1      }
+  93          
+  94                    
+  95          
+  96           
+  97          
+  98          
+  99          /*
+ 100          ** ----------------------------------------------------------------------------
+ 101          ** clr_io_sw_flag / set that there is not to read switchs
+ 102          ** ----------------------------------------------------------------------------
+ 103          ** Inputs: none
+ 104          ** Outputs: none 
+ 105          ** ----------------------------------------------------------------------------
+ 106          */
+ 107          void clr_io_sw_flag(void)
+ 108          {
+ 109   1        io_sw_flag = FALSE; 
+ 110   1      } 
+ 111            
+ 112          
+ 113          
+ 114          /*
+ 115          ** ----------------------------------------------------------------------------
+ 116          ** set_io_sw_flag  / set flag for switch to read
+ 117          ** ----------------------------------------------------------------------------
+C51 COMPILER V9.53.0.0   IO_TASK                                                           03/04/2015 20:41:32 PAGE 3   
+
+ 118          ** Inputs: none
+ 119          ** Outputs: None
+ 120          ** ----------------------------------------------------------------------------
+ 121          */
+ 122          void set_io_sw_flag(void)
+ 123          {
+ 124   1        io_sw_flag = TRUE; 
+ 125   1      } 
+ 126          
+ 127          
+ 128          
+ 129          
+ 130          
+ 131          
+ 132          
+ 133          /*
+ 134          ** ----------------------------------------------------------------------------
+ 135          ** set_io_bg_value
+ 136          ** ----------------------------------------------------------------------------
+ 137          ** Inputs: data to send to bargraph
+ 138          ** Outputs: None
+ 139          ** ----------------------------------------------------------------------------
+ 140          */
+ 141          void set_io_bg_value(Uchar value)
+ 142          {
+ 143   1        io_bg_value = value;  
+ 144   1      }
+ 145          
+ 146           
+ 147          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     49    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      4    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

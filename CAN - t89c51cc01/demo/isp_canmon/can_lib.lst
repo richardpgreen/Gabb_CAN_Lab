@@ -1,0 +1,822 @@
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE CAN_LIB
+OBJECT MODULE PLACED IN .\can_lib.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\..\lib\can_lib.c OPTIMIZE(8,SPEED) DEFINE(KEIL) DEBUG OBJECTEXTEND PR
+                    -INT(.\can_lib.lst) TABS(2) OBJECT(.\can_lib.obj)
+
+line level    source
+
+   1          /*C*****************************************************************************
+   2          * FILE_NAME         : Can_lib.c                                             
+   3          *----------------------------------------------------------------------------
+   4          * FILE_CREATED_BY   : BERTHY JS                                             
+   5          * FILE_CREATION_DATE: 27/09/99                                              
+   6          *----------------------------------------------------------------------------
+   7          * FILE_PURPOSE: provide low level functions for CAN controller   
+   8          *
+   9          * Timing with 12 MHz oscillator and compiled with Keil V6.00i
+  10          *
+  11          * - CANSetBRP     :  14 us                                 
+  12          * - CANSetSJW       :  18 us                             
+  13          * - CANSetPRS       :  16 us                                 
+  14          * - CANSetPHS2      :  17 us                                                                              
+             - 
+  15          * - CANSetPHS1      :  16 us                                                        
+  16          * - FindFirstChIt   :  24 us max(it on channel14)                                                       
+  17          * - ConfChannel_Rx  : 110 us max(ide with mask),  59 us max(std with mask)                                
+             -                       
+  18          * - SendCanMsg      : 333 us max(ide, 8 data)  , 306 us max(std, 8 data)                                  
+             -                      
+  19          * - ReadCanMsg_Rx   : 392 us max(ide, 8data) ,   326 us max(std, 8 data)                                  
+             -                       
+  20          * - RazAllMailbox : 890 us
+  21          ******************************************************************************/
+  22          
+  23          /*_____ I N C L U D E - F I L E S ____________________________________________*/
+  24          
+  25          #include "compiler.h"
+  26          #include "config.h"
+  27          #include "can_lib.h"
+  28          
+  29          
+  30          /*_____ G L O B A L S ________________________________________________________*/
+  31          
+  32          /* variables used by ConfChannel_Rx. */
+  33          can_id_t   can_rx_filt, 
+  34                     can_rx_msk;
+  35          
+  36          /* variables used by SendCanMsg. */
+  37          Uchar * pt_candata_tx; 
+  38          can_id_t can_tx_id;
+  39          /* variables used by ReadCanMsg. */
+  40          can_msg_t * pt_st_can_rx;
+  41          
+  42          
+  43          /* bit decalaration used by SendCanMsg and ConfChannel_rx 
+  44          *  this variable is redeclared in conf_rx and conf_tx.
+  45          * -------------------------------------------------------*/
+  46          bdata Uchar conf;
+  47          Sbit( msk_ide, conf, 7);  /* just for TX      */
+  48          Sbit( msk_rtr, conf, 6);  /* just for RX      */
+  49          Sbit( rtr    , conf, 5);  /* commun Rx and TX */
+  50          Sbit( ide    , conf, 4);  /* commun RX and TX */
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 2   
+
+  51          Sbit( buffer , conf, 0);  /* just for TX      */
+  52          
+  53          
+  54          /* bit decalaration used by ReadCanMsg 
+  55          *------------------------------------
+  56          * The declaration of NEW_CONF depend of declaration below
+  57          * #define CHANNEL_DISABLE   0x01 -> bit0 of b_var_read
+  58          * #define CHANNEL_RX_ENABLE   0x02 -> bit1 of b_var_read
+  59          * #define CHANNEL_RXB_ENABLE  0x04 -> bit2 of b_var_read
+  60          */
+  61          bdata Uchar b_var_read;
+  62          Sbit( bit_read_7, b_var_read, 7);
+  63          Sbit( bit_read_6, b_var_read, 6);
+  64          Sbit( bit_read_5, b_var_read, 5);
+  65          Sbit( bit_read_4, b_var_read, 4);
+  66          Sbit( bit_read_3, b_var_read, 3);
+  67          Sbit( bit_read_2, b_var_read, 2);
+  68          Sbit( bit_read_1, b_var_read, 1);
+  69          Sbit( bit_read_0, b_var_read, 0);
+  70          
+  71          #define NEW_CONF_CH_DISABLE   bit_read_0
+  72          #define NEW_CONF_CH_RX_ENABLE   bit_read_1
+  73          #define NEW_CONF_CH_RXB_ENABLE  bit_read_2
+  74          
+  75          
+  76          /* bit decalaration used by FindFirstChIt and fct_can_it
+  77          *-------------------------------------------------------*/
+  78          bdata Uchar bit_var;
+  79          Sbit( bit_7, bit_var, 7);
+  80          Sbit( bit_6, bit_var, 6);
+  81          Sbit( bit_5, bit_var, 5);
+  82          Sbit( bit_4, bit_var, 4);
+  83          Sbit( bit_3, bit_var, 3);
+  84          Sbit( bit_2, bit_var, 2);
+  85          Sbit( bit_1, bit_var, 1);
+  86          Sbit( bit_0, bit_var, 0);
+  87          
+  88          #define IT_TXOK bit_6
+  89          #define IT_RXOK bit_5
+  90          
+  91          
+  92          /*_____ P R I V A T E - F U N C T I O N S - D E C L A R A T I O N ____________*/
+  93          
+  94          
+  95          /*_____ L O C A L S __________________________________________________________*/
+  96          
+  97          
+  98          /*_____ P U B L I C - F U N C T I O N S ______________________________________*/
+  99          
+ 100          
+ 101          /*_____ P R I V A T E - F U N C T I O N S ____________________________________*/
+ 102          
+ 103          
+ 104          /*F****************************************************************************
+ 105          * FUNCTION_NAME: RazAllMailbox                                                  
+ 106          *----------------------------------------------------------------------------
+ 107          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 108          * FUNCTION_DATE  : 13/10/99                                                 
+ 109          *----------------------------------------------------------------------------
+ 110          * FUNCTION_PURPOSE: Raz mailbox, status and control register     
+ 111          * FUNCTION_INPUTS : void                                                          
+ 112          * FUNCTION_OUTPUTS: void                                                       
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 3   
+
+ 113          ******************************************************************************/
+ 114          void RazAllMailbox (void)
+ 115          {
+ 116   1        Uchar num_channel, num_data;
+ 117   1      
+ 118   1        for (num_channel = 0; num_channel < NB_CHANNEL; num_channel++)
+ 119   1        {
+ 120   2          CANPAGE  = num_channel << 4;
+ 121   2          CANCONCH = 0;
+ 122   2          CANSTCH  = 0;
+ 123   2          CANIDT1  = 0;
+ 124   2          CANIDT2  = 0;
+ 125   2          CANIDT3  = 0;
+ 126   2          CANIDT4  = 0;
+ 127   2          CANIDM1  = 0;
+ 128   2          CANIDM2  = 0;
+ 129   2          CANIDM3  = 0;
+ 130   2          CANIDM4  = 0;
+ 131   2          for (num_data = 0; num_data < NB_DATA_MAX; num_data++)
+ 132   2          {
+ 133   3            CANMSG = 0;
+ 134   3          }
+ 135   2        }
+ 136   1      
+ 137   1      }
+ 138          
+ 139          
+ 140          /*F****************************************************************************
+ 141          * FUNCTION_NAME: CanSetBRP                                                  
+ 142          *----------------------------------------------------------------------------
+ 143          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 144          * FUNCTION_DATE  : 27/09/99                                                 
+ 145          *----------------------------------------------------------------------------
+ 146          * FUNCTION_PURPOSE: Initialise the Prescaler for CAN Controler baudrate     
+ 147          *                    with value pasted in parameter.                         
+ 148          *                    Tscl = 2*(prescaler +1) / Fin                           
+ 149          *                    -----------------------------                            
+ 150          * FUNCTION_INPUTS : Uchar prescaler : CAN_BAUDRATE_MIN to CAN_BAUDRATE_MAX                    
+ 151          * FUNCTION_OUTPUTS: void                                                         
+ 152          ******************************************************************************/
+ 153          void CanSetBRP (Uchar prescaler)
+ 154          {
+ 155   1      
+ 156   1        if ((prescaler <= CAN_PRESCALER_MAX) &&
+ 157   1            (prescaler >= CAN_PRESCALER_MIN)   )
+ 158   1        {
+ 159   2          CANBT1 = prescaler << 1;
+ 160   2        }
+ 161   1      
+ 162   1      }
+ 163          
+ 164          
+ 165          /*F***************************************************************************
+ 166          * FUNCTION_NAME: CanSetSJW                                                  
+ 167          *----------------------------------------------------------------------------
+ 168          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 169          * FUNCTION_DATE  : 27/09/99                                                 
+ 170          *----------------------------------------------------------------------------
+ 171          * FUNCTION_PURPOSE: Initialise the Re_synchronization jump width for CAN    
+ 172          *                    Controler baudrate with value pasted in parameter.      
+ 173          *                      Tsjw = Tscl * (sjw + 1)                                
+ 174          *                      -----------------------                               
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 4   
+
+ 175          * FUNCTION_INPUTS : Uchar sjw : CAN_SJW_MIN to CAN_SJW_MAX                                    
+ 176          * FUNCTION_OUTPUTS: void                                                        
+ 177          ******************************************************************************/
+ 178          void CanSetSJW (Uchar sjw)
+ 179          {
+ 180   1       
+ 181   1        if ((sjw <= CAN_SJW_MAX) &&
+ 182   1            (sjw >= CAN_SJW_MIN)   )
+ 183   1        {
+ 184   2          CANBT2 &= ~MSK_CANBT2_SJW;  /* RAZ of field sjw.  */
+ 185   2          CANBT2 |= (sjw << 5);
+ 186   2        }
+ 187   1      
+ 188   1      }
+ 189          
+ 190          
+ 191          
+ 192          /*F****************************************************************************
+ 193          * FUNCTION_NAME: CanSetPRS                                                  
+ 194          *----------------------------------------------------------------------------
+ 195          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 196          * FUNCTION_DATE  : 27/09/99                                                 
+ 197          *----------------------------------------------------------------------------
+ 198          * FUNCTION_PURPOSE: Initialise the Programation time segment for CAN        
+ 199          *                    Controler with value pasted in parameter.               
+ 200          *                      Tprs = Tscl * (prs + 1)                                
+ 201          *                      -----------------------                               
+ 202          * FUNCTION_INPUTS : Uchar prs : CAN_PRS_MIN to CAN_PRS_MAX                                    
+ 203          * FUNCTION_OUTPUTS: void                                                         
+ 204          ******************************************************************************/
+ 205          void CanSetPRS (Uchar prs)
+ 206          {
+ 207   1      
+ 208   1        if ((prs <= CAN_PRS_MAX) &&
+ 209   1            (prs >= CAN_PRS_MIN)   )
+ 210   1        {
+ 211   2          CANBT2 &= ~MSK_CANBT2_PRS;   /* RAZ of field prs.  */
+ 212   2          CANBT2 |= (prs << 1);
+ 213   2        }
+ 214   1      
+ 215   1      }
+ 216          
+ 217          
+ 218          /*F***************************************************************************
+ 219          * FUNCTION_NAME: CanSetPHS2                                                 
+ 220          *----------------------------------------------------------------------------
+ 221          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 222          * FUNCTION_DATE  : 27/09/99                                                 
+ 223          *----------------------------------------------------------------------------
+ 224          * FUNCTION_PURPOSE: Initialise the Phase segment 2 for CAN Controller       
+ 225          *                    with value pasted in parameter.                         
+ 226          *                      Tphs2 = Tscl * (phs2 + 1)                              
+ 227          *                      -------------------------                             
+ 228          * FUNCTION_INPUTS : Uchar phs2: CAN_PHS2_MIN to CAN_PHS2_MAX                                 
+ 229          * FUNCTION_OUTPUTS: void                                                         
+ 230          ******************************************************************************/
+ 231          void CanSetPHS2 (Uchar phs2)
+ 232          {
+ 233   1        if ((phs2 <= CAN_PHS2_MAX) &&
+ 234   1            (phs2 >= CAN_PHS2_MIN)   )
+ 235   1        {
+ 236   2          CANBT3 &= ~MSK_CANBT3_PHS2;  /* RAZ of field PHS2.  */
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 5   
+
+ 237   2          CANBT3 |= (phs2 << 4);
+ 238   2        }
+ 239   1      
+ 240   1      }
+ 241          
+ 242          
+ 243          
+ 244          /*F****************************************************************************
+ 245          * FUNCTION_NAME: CanSetPHS1                                                 
+ 246          *----------------------------------------------------------------------------
+ 247          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 248          * FUNCTION_DATE  : 27/09/99                                                 
+ 249          *----------------------------------------------------------------------------
+ 250          * FUNCTION_PURPOSE: Initialise the Phase segment 1 for CAN Controller       
+ 251          *                    with value pasted in parameter.                         
+ 252          *                      Tphs1 = Tscl * (phs1 + 1)                              
+ 253          *                      -------------------------                             
+ 254          * FUNCTION_INPUTS : Uchar phs1 : CAN_PHS1_MIN to CAN_PHS1_MAX                                 
+ 255          * FUNCTION_OUTPUTS: void                                                        
+ 256          ******************************************************************************/
+ 257          void CanSetPHS1 (Uchar phs1)
+ 258          {
+ 259   1        if ((phs1 <= CAN_PHS1_MAX) &&
+ 260   1            (phs1 >= CAN_PHS1_MIN)   )
+ 261   1        {
+ 262   2          CANBT3 &= ~MSK_CANBT3_PHS1;   /* RAZ field of phs1.  */
+ 263   2          CANBT3 |= (phs1 << 1);
+ 264   2        }
+ 265   1      
+ 266   1      }
+ 267          
+ 268          
+ 269          /*F**************************************************************************
+ 270          * FUNCTION_NAME: ConfChannel_Rx                                             
+ 271          *----------------------------------------------------------------------------
+ 272          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 273          * FUNCTION_DATE  : 28/09/99                                                 
+ 274          *----------------------------------------------------------------------------
+ 275          * FUNCTION_PURPOSE: Configure the channel in reception,
+ 276          *        The identifier filtered and mask are initialized with the 
+ 277          *        value contain in global variables can_rx_id and can_rx_msk.     
+ 278          *        The configuration is defined in globale variable conf_rx.                   
+ 279          *                          
+ 280          * FUNCTION_INPUTS : void
+ 281          * FUNCTION_OUTPUTS: void                                                    
+ 282          *----------------------------------------------------------------------------
+ 283          * GLOBAL VARIABLES USED :
+ 284          * - conf_rx
+ 285          * - can_rx_filt
+ 286          * - can_rx_msk
+ 287          ******************************************************************************
+ 288          * The variable conf_rx must contain information:                                   
+ 289          *    - on ide:
+ 290          *           standart (CONF_NOIDE) or 
+ 291          *           extended (CONF_IDE)                     
+ 292          *    - on ide mask, 
+ 293          *           no mask on ide bit(CONF_NOMSK_IDE) or
+ 294          *           mask on ide bit   (CONF_MSK_IDE) 
+ 295          *    - on rtr:
+ 296          *           data frame   (CONF_NORTR) or 
+ 297          *           remote frame (CONF_RTR)                     
+ 298          *    - on rtr mask, 
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 6   
+
+ 299          *           no mask on rtr bit(CONF_NOMSK_RTR) or 
+ 300          *           mask on rtr bit   (CONF_MSK_RTR) 
+ 301          *    - on buffer mode
+ 302          *           channel is for the buffer mode (CONF_BUFFER) or
+ 303          *           channel is not for buffer mode (CONF_NOBUFFER) 
+ 304          *
+ 305          * Exemple of configuration:                                                                   
+ 306          * ------------------------                                                                   
+ 307          * conf_rx = CONF_IDE | CONF_NOMSK_IDE | CONF_NORTR | 
+ 308          *           CONF_NOMSK_RTR | CONF_NOBUFFER                                       
+ 309          *                                                                            
+ 310          ******************************************************************************
+ 311          * NOTE:                                                                      
+ 312          *     It's very important to make sure that channel is free.                 
+ 313          *     No verification are perform by this function.                          
+ 314          *     The corresponding channel must selected before called this function
+ 315          *
+ 316          *     When conf_rx = 0 -> CONF_NOIDE | CONF_NOMSK_IDE | CONF_NORTR |
+ 317          *                         CONF_NOMSK_RTR | NO_BUFFER 
+ 318          *
+ 319          * Exemple of use:
+ 320          *---------------
+ 321          *
+ 322          *  can_rx_filt.ext = 0x5555555;
+ 323          *  can_rx_msk.ext  = 0x00;
+ 324          *  conf_rx         = CONF_IDE|CONF_MSK_IDE|CONF_NOBUFFER;
+ 325          *  CAN_SET_CHANNEL(CHANNEL_1);
+ 326          *  ConfChannel_Rx();
+ 327          *
+ 328          ******************************************************************************/
+ 329          void ConfChannel_Rx()
+ 330          {
+ 331   1      
+ 332   1      
+ 333   1        CANSTCH  = 0x00;               
+ 334   1        CANCONCH = 0x00;            
+ 335   1      
+ 336   1        if (ide == TRUE)
+ 337   1        {                                /* identifier = 29 bits.            */  
+ 338   2          CANIDT1 = CAN_SET_EXT_ID_28_21 (can_rx_filt.ext);
+ 339   2          CANIDT2 = CAN_SET_EXT_ID_20_13 (can_rx_filt.ext);
+ 340   2          CANIDT3 = CAN_SET_EXT_ID_12_5  (can_rx_filt.ext);
+ 341   2          CANIDT4 = CAN_SET_EXT_ID_4_0   (can_rx_filt.ext);
+ 342   2      
+ 343   2          CANIDM1 = CAN_SET_EXT_MSK_28_21 (can_rx_msk.ext);
+ 344   2          CANIDM2 = CAN_SET_EXT_MSK_20_13 (can_rx_msk.ext);
+ 345   2          CANIDM3 = CAN_SET_EXT_MSK_12_5  (can_rx_msk.ext);
+ 346   2          CANIDM4 = CAN_SET_EXT_MSK_4_0   (can_rx_msk.ext);
+ 347   2          CANCONCH|= MSK_CANCONCH_IDE;  /* set bit ide in CANCONCH.  */
+ 348   2        }
+ 349   1        else                        /* In Standart mode (ide = B_FALSE), */
+ 350   1        {                           /* identifier = 11bits.              */
+ 351   2          CANIDT1 = CAN_SET_STD_ID_10_4 (can_rx_filt.std);
+ 352   2          CANIDT2 = CAN_SET_STD_ID_3_0 (can_rx_filt.std);
+ 353   2      
+ 354   2          CANIDM1 = CAN_SET_STD_MSK_10_4 (can_rx_msk.std);
+ 355   2          CANIDM2 = CAN_SET_STD_MSK_3_0 (can_rx_msk.std);
+ 356   2          CANIDM4 = 0;
+ 357   2        }
+ 358   1      
+ 359   1        if (rtr == TRUE)
+ 360   1        {
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 7   
+
+ 361   2          CANIDT4 |= MSK_CANIDT4_RTRTAG;   /* set bit rtr in CANIDT4.   */   
+ 362   2        }
+ 363   1        else
+ 364   1        {
+ 365   2          CANIDT4 &=~MSK_CANIDT4_RTRTAG;   /* clear bit rtr in CANIDT4. */
+ 366   2        }
+ 367   1      
+ 368   1        if (msk_rtr == TRUE)
+ 369   1        {
+ 370   2          CANIDM4 |= MSK_CANIDM4_RTRMSK;   /* set bit rtr in CANIDM4.   */ 
+ 371   2        }
+ 372   1        
+ 373   1        if (msk_ide == TRUE)
+ 374   1        {
+ 375   2          CANIDM4 |= MSK_CANIDM4_IDEMSK;   /* set bit ide in CANIDM4.   */
+ 376   2        }
+ 377   1      
+ 378   1        if (buffer == TRUE)
+ 379   1        {
+ 380   2          ENABLE_CHANNEL_BUFFER; /* Buffer Reception enabled.*/
+ 381   2        }
+ 382   1        else
+ 383   1        {
+ 384   2          ENABLE_CHANNEL_RX; /* Reception enabled.*/
+ 385   2        }
+ 386   1      
+ 387   1        CANCONCH |= 0x08;
+ 388   1      
+ 389   1      }
+ 390          
+ 391          /*F***************************************************************************
+ 392          * FUNCTION_NAME:  SendCanMsg                                                
+ 393          *----------------------------------------------------------------------------
+ 394          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 395          * FUNCTION_DATE  : 28/09/99                                                 
+ 396          *----------------------------------------------------------------------------
+ 397          * FUNCTION_PURPOSE: Send message        
+ 398          *        The identifier to send is declared in the globale variable can_id_tx,
+ 399          *        data to transmit are declared in the globale variable pt_candata_tx  
+ 400          *        The configuration is defined in globale variable conf_tx.                   
+ 401          * FUNCTION_INPUTS : void                                                        
+ 402          * FUNCTION_OUTPUTS: void                                                        
+ 403          *----------------------------------------------------------------------------
+ 404          * GLOBAL VARIABLES USED :
+ 405          * - conf_tx
+ 406          * - pt_candata_tx
+ 407          * - can_tx_id
+ 408          ******************************************************************************
+ 409          * The variable conf_tx must contain information:                                   
+ 410          *    - on ide:
+ 411          *           standart(NOT_IDE) or 
+ 412          *           extended (IDE)                     
+ 413          *    - on rtr:
+ 414          *           remote frame(RTR) or 
+ 415          *           data frame(NO_RTR)       
+ 416          *    - on dlc: size of data dlc_t.
+ 417          *
+ 418          * Exemple of declaration:                          
+ 419          * ---------------------- 
+ 420          *                                                                  
+ 421          * conf_tx = IDE | NO_RTR | DLC_6 
+ 422          *                                      
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 8   
+
+ 423          ******************************************************************************                            
+             -                                                
+ 424          * NOTE:                                                                      
+ 425          *     It's very important to make sure that channel is free.                 
+ 426          *     No verification are perform by this function.                          
+ 427          *
+ 428          * Exemple of use:
+ 429          * ---------------
+ 430          *
+ 431          *  CAN_SET_CHANNEL(CHANNEL_7);
+ 432          *  canid_tx.std = frame1.id.std;
+ 433          *  conf_tx      = frame1.ctrl;
+ 434          *  pt_candata_tx= frame1.pt_donne;
+ 435          *  CANIE2 |= (1 << CHANNEL_7);
+ 436          *  SendCanMsg();
+ 437          ******************************************************************************/
+ 438          void SendCanMsg (void)
+ 439          {
+ 440   1        Uchar  dlc, i;
+ 441   1      
+ 442   1      
+ 443   1        CAN_IT_DISABLE;
+ 444   1       
+ 445   1        CANSTCH  = 0x00;
+ 446   1        CANCONCH = conf;
+ 447   1        
+ 448   1        if (ide == TRUE)
+ 449   1        {
+ 450   2          CANIDT1 = CAN_SET_EXT_ID_28_21 (can_tx_id.ext);
+ 451   2          CANIDT2 = CAN_SET_EXT_ID_20_13 (can_tx_id.ext);
+ 452   2          CANIDT3 = CAN_SET_EXT_ID_12_5  (can_tx_id.ext);
+ 453   2          CANIDT4 = CAN_SET_EXT_ID_4_0   (can_tx_id.ext);
+ 454   2        }
+ 455   1        else
+ 456   1        {
+ 457   2          CANIDT1 = CAN_SET_STD_ID_10_4 (can_tx_id.std);
+ 458   2          CANIDT2 = CAN_SET_STD_ID_3_0  (can_tx_id.std);
+ 459   2        }
+ 460   1      /* load data to tx. */
+ 461   1        dlc = (conf & MSK_CTRL_DLC);  
+ 462   1        for (i=dlc; i!=0; i--)
+ 463   1        {
+ 464   2          CANMSG = *pt_candata_tx++;
+ 465   2        }
+ 466   1      
+ 467   1        ENABLE_CHANNEL_TX;
+ 468   1        CAN_IT_ENABLE;
+ 469   1      
+ 470   1      
+ 471   1      }
+ 472          
+ 473          /*F***************************************************************************
+ 474          * FUNCTION_NAME: ReadCanMsg                                                 
+ 475          *----------------------------------------------------------------------------
+ 476          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 477          * FUNCTION_DATE  : 28/09/99                                                 
+ 478          *----------------------------------------------------------------------------
+ 479          * FUNCTION_PURPOSE: Copy message received on num_channel in structure       
+ 480          *                   of type st_can_msg_t, and configured the channel with the
+ 481          *                   new configuration given by next_conf, past in parameter                               
+             -    
+ 482          * FUNCTION_INPUTS : Uchar next_conf: 
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 9   
+
+ 483          *                        - CHANNEL_DISABLE    
+ 484          *                        - CHANNEL_RX_ENABLE (re-enable the channel in reception)
+ 485          *                        - CHANNEL_RXB_ENABLE(re-enable the channel 
+ 486          *                                             in buffer mode)                                             
+             -    
+ 487          * FUNCTION_OUTPUTS: void                                                         
+ 488          *----------------------------------------------------------------------------
+ 489          * GLOBAL VARIABLES USED :
+ 490          * - conf_rx
+ 491          * - pt_st_can_rx
+ 492          ******************************************************************************
+ 493          * NOTE:                                                                      
+ 494          ******************************************************************************/
+ 495          void ReadCanMsg (Uchar next_conf)
+ 496          {
+ 497   1        Uchar * pt_local;
+ 498   1        Uchar dlc, i;
+ 499   1      
+ 500   1      
+ 501   1        pt_st_can_rx->ctrl = CANCONCH;
+ 502   1      
+ 503   1        conf_rx = CANCONCH;
+ 504   1      
+ 505   1        if(ide)
+ 506   1        {
+ 507   2          pt_st_can_rx->id.tab[0] = CANIDT1 >> 3;   
+ 508   2          pt_st_can_rx->id.tab[1] = (CANIDT1 << 5) | (CANIDT2 >> 3);    
+ 509   2          pt_st_can_rx->id.tab[2] = (CANIDT2 << 5) | (CANIDT3 >> 3);    
+ 510   2          pt_st_can_rx->id.tab[3] = (CANIDT3 << 5) | (CANIDT4 >> 3);   
+ 511   2        }
+ 512   1        else
+ 513   1        {
+ 514   2          pt_st_can_rx->id.std = (CANIDT1 << 3) | (CANIDT2 >> 5);
+ 515   2        }
+ 516   1      
+ 517   1        pt_local = pt_st_can_rx->pt_donne;
+ 518   1        dlc      = (conf_rx & MSK_CTRL_DLC);  
+ 519   1        for (i=dlc; i!=0; i--)
+ 520   1        {
+ 521   2          *pt_local++ = CANMSG;
+ 522   2        }
+ 523   1      
+ 524   1      
+ 525   1      /*---------- New configuration for this channel. */
+ 526   1        b_var_read = next_conf;
+ 527   1        if (NEW_CONF_CH_DISABLE)
+ 528   1        {
+ 529   2          CANCONCH |= (MSK_CANCONCH_CONF & CH_DISABLE); /* Reception disable.*/
+ 530   2        }
+ 531   1        else if(NEW_CONF_CH_RX_ENABLE) 
+ 532   1        {
+ 533   2          CANCONCH |= (MSK_CANCONCH_CONF & CH_RxENA); /* Reception enable.*/
+ 534   2        }
+ 535   1        else /* CHANNEL_RXB_ENABLE */
+ 536   1        {
+ 537   2          CANCONCH |= (MSK_CANCONCH_CONF & CH_RxBENA); /* Buffer enable.*/
+ 538   2        }
+ 539   1      
+ 540   1      }
+ 541          
+ 542          
+ 543          
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 10  
+
+ 544          
+ 545          /*F***************************************************************************
+ 546          * FUNCTION_NAME:  FindFirstChIt                                              
+ 547          *----------------------------------------------------------------------------
+ 548          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 549          * FUNCTION_DATE  :                                               
+ 550          *----------------------------------------------------------------------------
+ 551          * FUNCTION_PURPOSE: This function return the first channel with an interrupt
+ 552          *                   request. The big priority start with the lowest channel 
+ 553          *                   value (CHANNEL_0). 
+ 554          * FUNCTION_INPUTS : void                 
+ 555          * FUNCTION_OUTPUTS: Uchar num_channel: return the channel number of the first 
+ 556          *                   it find in CANSIT registers.                                                         
+ 557          *****************************************************************************
+ 558          * NOTE:                                                                      
+ 559          ******************************************************************************/
+ 560          Uchar FindFirstChIt (void)
+ 561          {
+ 562   1        Uchar num_channel = NO_CHANNEL;
+ 563   1      
+ 564   1      
+ 565   1        if (CANSIT2)
+ 566   1        {
+ 567   2          bit_var = CANSIT2;
+ 568   2          if(bit_0)
+ 569   2          {
+ 570   3            num_channel = CHANNEL_0;
+ 571   3          }
+ 572   2          else if (bit_1)
+ 573   2          {
+ 574   3            num_channel = CHANNEL_1;
+ 575   3          }
+ 576   2          else if (bit_2)
+ 577   2          {
+ 578   3            num_channel = CHANNEL_2;
+ 579   3          }
+ 580   2          else if (bit_3)
+ 581   2          {
+ 582   3            num_channel = CHANNEL_3;
+ 583   3          }
+ 584   2          else if (bit_4)
+ 585   2          {
+ 586   3            num_channel = CHANNEL_4;
+ 587   3          }
+ 588   2          else if (bit_5)
+ 589   2          {
+ 590   3            num_channel = CHANNEL_5;
+ 591   3          }
+ 592   2          else if (bit_6)
+ 593   2          {
+ 594   3            num_channel = CHANNEL_6;
+ 595   3          }
+ 596   2          else 
+ 597   2          {
+ 598   3            num_channel = CHANNEL_7;
+ 599   3          }
+ 600   2          
+ 601   2        }
+ 602   1        else if (CANSIT1)
+ 603   1        {
+ 604   2          bit_var = CANSIT1;
+ 605   2          if(bit_0)
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 11  
+
+ 606   2          {
+ 607   3            num_channel = CHANNEL_8;
+ 608   3          }
+ 609   2          else if (bit_1)
+ 610   2          {
+ 611   3            num_channel = CHANNEL_9;
+ 612   3          }
+ 613   2          else if (bit_2)
+ 614   2          {
+ 615   3            num_channel = CHANNEL_10;
+ 616   3          }
+ 617   2          else if (bit_3)
+ 618   2          {
+ 619   3            num_channel = CHANNEL_11;
+ 620   3          }
+ 621   2          else if (bit_4)
+ 622   2          {
+ 623   3            num_channel = CHANNEL_12;
+ 624   3          }
+ 625   2          else if (bit_5)
+ 626   2          {
+ 627   3            num_channel = CHANNEL_13;
+ 628   3          }
+ 629   2          else if (bit_6)
+ 630   2          {
+ 631   3            num_channel = CHANNEL_14;
+ 632   3          }
+ 633   2        }
+ 634   1      
+ 635   1        return(num_channel);
+ 636   1      }
+ 637          
+ 638          
+ 639          /*F***************************************************************************
+ 640          * FUNCTION_NAME: fct_can_it                                                
+ 641          *-----------------------------------------------------------------------------
+ 642          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 643          * FUNCTION_DATE  :                                                  
+ 644          *-----------------------------------------------------------------------------
+ 645          * FUNCTION_PURPOSE: function called on can interrupt
+ 646          *     The first task of this function is to identified whish channel 
+ 647          *           generate the interrupt, and the second is to identified whish kind
+ 648          *           of interrupt is generated (rxok, txok, error, buffer full).                                  
+ 649          * FUNCTION_INPUTS : void                                                        
+ 650          * FUNCTION_OUTPUTS: void                                                        
+ 651          ******************************************************************************
+ 652          * NOTE:                                                                      
+ 653          ******************************************************************************/
+ 654          void fct_can_it (void)
+ 655          {
+ 656   1        Uchar channel;
+ 657   1        Uchar save_canpage;
+ 658   1        
+ 659   1      // Save the courant CANPAGE
+ 660   1        save_canpage = CANPAGE;
+ 661   1      
+ 662   1        channel = FindFirstChIt();
+ 663   1      
+ 664   1        if (channel != NO_CHANNEL)
+ 665   1        {
+ 666   2          CAN_SET_CHANNEL(channel);
+ 667   2      
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 12  
+
+ 668   2          bit_var = CANSTCH;
+ 669   2      
+ 670   2       /* Tx or Rx interrupt*/
+ 671   2          if (IT_RXOK)
+ 672   2          {
+ 673   3      #ifdef USER_CAN_FCT_IT_RXOK
+ 674   3      
+ 675   3            can_fct_it_rxok();
+ 676   3      
+ 677   3      #endif /* USER_CAN_FCT_IT_RXOK */
+ 678   3       
+ 679   3          }
+ 680   2          else if (IT_TXOK)
+ 681   2          {
+ 682   3      #ifdef USER_CAN_FCT_IT_TXOK
+ 683   3      
+ 684   3            can_fct_it_txok();  
+ 685   3      
+ 686   3      #endif /* USER_CAN_FCT_IT_TXOK */
+ 687   3      
+ 688   3          }
+ 689   2      /* Error Analysis */
+ 690   2          if(!IT_RXOK && !IT_TXOK)
+ 691   2          {
+ 692   3      
+ 693   3      #ifdef USER_CAN_FCT_IT_ERROR    
+              
+                    can_fct_it_error();
+              
+              #endif /* USER_CAN_FCT_IT_ERROR */
+ 698   3      
+ 699   3          }
+ 700   2      /* Raz all flag */
+ 701   2          CANSTCH = 0x00;
+ 702   2        } 
+ 703   1        else
+ 704   1        {
+ 705   2      /* No Channel match with the interrupt => General it*/
+ 706   2      #ifdef USER_CAN_FCT_IT_GEN
+              
+                  can_fct_it_gen();
+              
+              #endif /* USER_CAN_FCT_IT_GEN */
+ 711   2          CANGIT &= 0xF0;
+ 712   2        } 
+ 713   1      
+ 714   1      // restore the old config
+ 715   1        CANPAGE = save_canpage;
+ 716   1      }
+ 717          
+ 718          
+ 719          /*F***************************************************************************
+ 720          * FUNCTION_NAME: fct_tim_ovf_it                                                
+ 721          *----------------------------------------------------------------------------
+ 722          * FUNCTION_AUTHOR: BERTHY J.S.                                              
+ 723          * FUNCTION_DATE  :                                                  
+ 724          *----------------------------------------------------------------------------
+ 725          * FUNCTION_PURPOSE: function called on ovf_tim                                  
+ 726          * FUNCTION_INPUTS : void                                                        
+ 727          * FUNCTION_OUTPUTS: void                                                        
+ 728          ******************************************************************************
+ 729          * NOTE:                                                                      
+C51 COMPILER V9.53.0.0   CAN_LIB                                                           03/04/2015 20:41:29 PAGE 13  
+
+ 730          /******************************************************************************/
+ 731          void fct_tim_ovf_it (void)
+ 732          {
+ 733   1      #ifdef USER_CAN_FCT_IT_TIMOVF
+               
+                can_fct_it_timovf();
+              
+              #endif /* USER_CAN_FCT_IT_TIMOVF */
+ 738   1      
+ 739   1        CANGIT &= ~MSK_CANGIT_OVRTIM; 
+ 740   1      }
+ 741          
+ 742          
+ 743          
+ 744          
+ 745          
+ 746          
+ 747          
+ 748          
+ 749          
+ 750          
+ 751          
+ 752          
+ 753          
+ 754          
+ 755          
+ 756          
+ 757          
+ 758          
+ 759          
+ 760          
+ 761          
+ 762          
+ 763          
+ 764          
+ 765          
+ 766          
+ 767          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    873    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     21       5
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

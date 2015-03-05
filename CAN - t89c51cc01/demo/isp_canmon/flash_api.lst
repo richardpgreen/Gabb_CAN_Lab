@@ -1,0 +1,464 @@
+C51 COMPILER V9.53.0.0   FLASH_API                                                         03/04/2015 20:41:31 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE FLASH_API
+OBJECT MODULE PLACED IN .\flash_api.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE ..\..\isp\can\flash_api\flash_api.c OPTIMIZE(8,SPEED) DEFINE(KEIL) DEBUG
+                    - OBJECTEXTEND PRINT(.\flash_api.lst) TABS(2) OBJECT(.\flash_api.obj)
+
+line level    source
+
+   1          /*C**************************************************************************
+   2          * NAME: api_cc01.c  
+   3          *----------------------------------------------------------------------------
+   4          * CREATED_BY:    Jean-Sebastien Berthy
+   5          * CREATION_DATE: 15/01/2000 
+   6          * AUTHOR:        $Author: jberthy $
+   7          * REVISION       $Revision: 1.3 $
+   8          * DATE:          $Date: 2001/09/06 06:23:18 $
+   9          *----------------------------------------------------------------------------
+  10          * PURPOSE: 
+  11          * This file contains whole of functions to access T89C51CC01 Flash and EEPROM. 
+  12          *****************************************************************************/
+  13          
+  14          /*_____ I N C L U D E S ____________________________________________________*/
+  15          
+  16          #include "config.h"
+  17          
+  18          /*_____ M A C R O S ________________________________________________________*/
+  19          
+  20          /*_____ D E F I N I T I O N ________________________________________________*/
+  21          
+  22          Uchar  data api_command   _at_ 0x1C;
+  23          Uchar  data api_value     _at_ 0x1D;
+  24          Uchar  data api_dpl     _at_ 0x1F;
+  25          Uchar  data api_dph     _at_ 0x1E;
+  26          
+  27           
+  28          #define MSK_AUXR1_ENBOOT  0x20
+  29          #define MAP_BOOT      AUXR1 |= MSK_AUXR1_ENBOOT;
+  30          #define UNMAP_BOOT    AUXR1 &= ~MSK_AUXR1_ENBOOT;
+  31          
+  32          #define __API_FLASH_ENTRY_POINT (*((const void(code*)(void)) 0xFFC0 ))
+  33          #define __API_JMP_ISP_START (*((const void(code*)(void)) 0xFF00 ))
+  34          #define __API_JMP_BOOTLOADER (*((const void(code*)(void)) 0xF800 ))
+  35          
+  36          /*_____ D E C L A R A T I O N ______________________________________________*/
+  37          
+  38          
+  39          /*F**************************************************************************
+  40          * NAME: __api_rd_generic                                            
+  41          *----------------------------------------------------------------------------
+  42          * AUTHOR: Jean-Sebastien Berthy 
+  43          *----------------------------------------------------------------------------
+  44          * PARAMS:  
+  45          * Uchar command: api_command to call    
+  46          * Uchar dpl    : api_dpl
+  47          * return: 
+  48          * Uchar : read value
+  49          *----------------------------------------------------------------------------
+  50          * PURPOSE: 
+  51          * This function allows to read xaf and special area
+  52          *****************************************************************************
+  53          * NOTE: 
+  54          *****************************************************************************/
+C51 COMPILER V9.53.0.0   FLASH_API                                                         03/04/2015 20:41:31 PAGE 2   
+
+  55          Uchar __api_rd_generic (Uchar command, Uchar dpl)
+  56          {
+  57   1        api_command = command;
+  58   1        api_dpl     = dpl;
+  59   1        MAP_BOOT;
+  60   1        __API_FLASH_ENTRY_POINT();
+  61   1        UNMAP_BOOT;
+  62   1      
+  63   1        return(api_value);
+  64   1      }
+  65          
+  66          /*F**************************************************************************
+  67          * NAME: __api_wr_generic                                            
+  68          *----------------------------------------------------------------------------
+  69          * AUTHOR: Jean-Sebastien Berthy 
+  70          *----------------------------------------------------------------------------
+  71          * PARAMS:  
+  72          * Uchar command: api_command to call    
+  73          * Uchar value  : api_value
+  74          * Uchar dpl    : api_dpl
+  75          * return: 
+  76          * Uchar return: command status (1 - ok)
+  77          *----------------------------------------------------------------------------
+  78          * PURPOSE: 
+  79          * This function allows to write in xaf
+  80          *****************************************************************************
+  81          * NOTE: 
+  82          *****************************************************************************/
+  83          Uchar __api_wr_generic (Uchar command, Uchar value, Uchar dpl)
+  84          {
+  85   1      
+  86   1        bit ea_save;
+  87   1      
+  88   1        ea_save = EA;
+  89   1        EA = 0;
+  90   1        api_command = command;
+  91   1        api_dpl     = dpl;
+  92   1        api_value   = value;
+  93   1        MAP_BOOT;
+  94   1        __API_FLASH_ENTRY_POINT();
+  95   1        UNMAP_BOOT;
+  96   1        EA = ea_save;     // restore interrupt state
+  97   1        return(1);
+  98   1      
+  99   1      }
+ 100          
+ 101          
+ 102          /*F**************************************************************************
+ 103          * NAME: __api_rd_code_byte                                            
+ 104          *----------------------------------------------------------------------------
+ 105          * AUTHOR: Jean-Sebastien Berthy 
+ 106          *----------------------------------------------------------------------------
+ 107          * PARAMS:  
+ 108          * Uint16 address : address in flash memory to read    
+ 109          * return: 
+ 110          * Uchar device : read value
+ 111          *----------------------------------------------------------------------------
+ 112          * PURPOSE: 
+ 113          * This function allows to read a flash memory byte.
+ 114          *****************************************************************************
+ 115          * NOTE: 
+ 116          * To use this function the constante __API_RD_CODE_BYTE must be define in 
+C51 COMPILER V9.53.0.0   FLASH_API                                                         03/04/2015 20:41:31 PAGE 3   
+
+ 117          * C header file api_cc01.h.
+ 118          *****************************************************************************/
+ 119          #ifdef __API_RD_CODE_BYTE
+ 120          Uchar __api_rd_code_byte (Uchar code * pt_address)
+ 121          {
+ 122   1        return(*pt_address);
+ 123   1      }
+ 124          #endif
+ 125          
+ 126          /*F**************************************************************************
+ 127          * NAME: __api_wr_code_byte                                            
+ 128          *----------------------------------------------------------------------------
+ 129          * AUTHOR: Jean-Sebastien Berthy 
+ 130          *----------------------------------------------------------------------------
+ 131          * PARAMS:  
+ 132          * Uint16 address : address to program
+ 133          * Uchar value : data to write   
+ 134          * return: 
+ 135          * Uchar return : 
+ 136          *       return = 0x00 -> pass                            
+ 137          *       return != 0x00 -> fail
+ 138          *----------------------------------------------------------------------------
+ 139          * PURPOSE: 
+ 140          * This function allows to program data byte in Flash memory.
+ 141          *****************************************************************************
+ 142          * NOTE: 
+ 143          * To use this function the constante __API_WR_CODE_BYTE must be define in 
+ 144          * C header file api_cc01.h.
+ 145          *****************************************************************************/
+ 146          #ifdef __API_WR_CODE_BYTE
+ 147          Uchar __api_wr_code_byte (Uchar xdata * pt_address, Uchar value)
+ 148          {
+ 149   1        bit ea_save;
+ 150   1      
+ 151   1        ea_save = EA;
+ 152   1        EA = 0;
+ 153   1        api_command = _COMMAND_WR_CODE_BYTE;
+ 154   1        FCON = 0x08;
+ 155   1      
+ 156   1        *pt_address = value;
+ 157   1      
+ 158   1        MAP_BOOT;
+ 159   1        __API_FLASH_ENTRY_POINT();
+ 160   1        UNMAP_BOOT;
+ 161   1        EA = ea_save;     // restore interrupt state
+ 162   1      
+ 163   1        return(api_value);
+ 164   1      }
+ 165          #endif
+ 166          
+ 167          /*F**************************************************************************
+ 168          * NAME: __api_wr_code_page                                            
+ 169          *----------------------------------------------------------------------------
+ 170          * AUTHOR: Jean-Sebastien Berthy 
+ 171          *----------------------------------------------------------------------------
+ 172          * PARAMS:  
+ 173          * Uint16 add_flash : address of the first byte to program in the Flash
+ 174          * Uint16 add_xram  : address in XRAM of the first data to program
+ 175          * Uchar nb_data : number of bytes to program
+ 176          * return: 
+ 177          * Uchar return : 
+ 178          *       return = 0x00 -> pass                            
+C51 COMPILER V9.53.0.0   FLASH_API                                                         03/04/2015 20:41:31 PAGE 4   
+
+ 179          *       return != 0x00 -> fail
+ 180          *----------------------------------------------------------------------------
+ 181          * PURPOSE: 
+ 182          * This function allows to program until 128 Datas in Flash memory.
+ 183          * Number of bytes to program is limited such as the Flash write remains in a
+ 184          * single 128 bytes page. 
+ 185          *****************************************************************************
+ 186          * NOTE: 
+ 187          * To use this function the constante __API_WR_CODE_PAGE must be define in 
+ 188          * C header file api_cc01.h.
+ 189          * This function used Dual Data Pointer DPTR0&1. At the end of this function 
+ 190          * DPTR = DPTR0.
+ 191          *****************************************************************************/
+ 192          #ifdef __API_WR_CODE_PAGE
+ 193          Uchar __api_wr_code_page (Uchar xdata * pt_code, Uchar xdata * pt_xram, Uchar nb_data)
+ 194          {
+ 195   1        Uchar data i, temp, temp_nb_data;
+ 196   1        bit ea_save;
+ 197   1        Uint16  data add_pt_code, add_pt_xram;
+ 198   1      
+ 199   1        add_pt_xram = pt_xram;
+ 200   1        add_pt_code = pt_code;
+ 201   1        temp_nb_data = nb_data;
+ 202   1        ea_save = EA;
+ 203   1        EA = 0;
+ 204   1        api_command = _COMMAND_WR_CODE_BYTE;
+ 205   1        for (i=0 ; i< temp_nb_data; i++,add_pt_xram++,add_pt_code++)
+ 206   1        {
+ 207   2          temp = *(Uchar xdata *)add_pt_xram;
+ 208   2          FCON = 0x08;
+ 209   2          *(Uchar xdata *)add_pt_code = temp;
+ 210   2          FCON = 0x00;
+ 211   2        }
+ 212   1      
+ 213   1        MAP_BOOT;
+ 214   1        __API_FLASH_ENTRY_POINT();
+ 215   1        UNMAP_BOOT;
+ 216   1        EA = ea_save;     // restore interrupt state
+ 217   1        
+ 218   1        return(api_value);
+ 219   1      }
+ 220          #endif
+ 221          
+ 222          /*F**************************************************************************
+ 223          * NAME: __api_wr_fuse                                            
+ 224          *----------------------------------------------------------------------------
+ 225          * AUTHOR: Jean-Sebastien Berthy 
+ 226          *----------------------------------------------------------------------------
+ 227          * PARAMS:  
+ 228          * Uchar return : 
+ 229          *----------------------------------------------------------------------------
+ 230          * PURPOSE: 
+ 231          *****************************************************************************
+ 232          * NOTE: 
+ 233          *****************************************************************************/
+ 234          Uchar __api_wr_fuse (Uchar mask, Uchar filter)
+ 235          {
+ 236   1        Uchar value;
+ 237   1        bit ea_save;
+ 238   1      
+ 239   1        ea_save = EA;
+ 240   1        EA = 0;
+C51 COMPILER V9.53.0.0   FLASH_API                                                         03/04/2015 20:41:31 PAGE 5   
+
+ 241   1        value  = __api_rd_HSB();
+ 242   1        value &= ~mask;
+ 243   1        api_value   = value | filter;
+ 244   1        api_command = _COMMAND_WR_FUSE_BIT;
+ 245   1        MAP_BOOT;
+ 246   1        __API_FLASH_ENTRY_POINT();
+ 247   1        UNMAP_BOOT;
+ 248   1        EA = ea_save;     // restore interrupt state
+ 249   1        
+ 250   1        return(1);
+ 251   1      }
+ 252          
+ 253          
+ 254          
+ 255          /*F**************************************************************************
+ 256          * NAME: api_erase_block                                            
+ 257          *----------------------------------------------------------------------------
+ 258          * AUTHOR: Jean-Sebastien Berthy 
+ 259          *----------------------------------------------------------------------------
+ 260          * PARAMS:  
+ 261          * block_t num_block 
+ 262          *         num_block = BLOCK_0 (erase Flash between 0x0000-0x1FFF)
+ 263          *         num_block = BLOCK_1 (erase Flash between 0x2000-0x3FFF)
+ 264          *         num_block = BLOCK_2 (erase Flash between 0x3000-0x7FFF)
+ 265          *         num_block = BLOCK_3 (erase Flash between 0x8000-0xBFFF)
+ 266          *         num_block = BLOCK_4 (erase Flash between 0xC000-0xFFFF)
+ 267          * return: 
+ 268          *----------------------------------------------------------------------------
+ 269          * PURPOSE: 
+ 270          * This function allows to erase Block in Flash.
+ 271          *****************************************************************************
+ 272          * NOTE: 
+ 273          * To use this function the constante __API_ERASE_BLOCK must be define in
+ 274          * C header file api_cc01.h.
+ 275          *****************************************************************************/
+ 276          #ifdef __API_ERASE_BLOCK
+ 277          Uchar __api_erase_block (block_t num_block)
+ 278          {
+ 279   1        bit ea_save;
+ 280   1      
+ 281   1        ea_save = EA;
+ 282   1        EA = 0;
+ 283   1        api_command = _COMMAND_ER_BLOCK;
+ 284   1        api_dph     = num_block;
+ 285   1        MAP_BOOT;
+ 286   1        __API_FLASH_ENTRY_POINT();
+ 287   1        UNMAP_BOOT;
+ 288   1        EA = ea_save;     // restore interrupt state
+ 289   1      
+ 290   1        return(1);
+ 291   1      }
+ 292          #endif
+ 293          
+ 294          /*F**************************************************************************
+ 295          * NAME: api_eeprom_busy                                            
+ 296          *----------------------------------------------------------------------------
+ 297          * AUTHOR: Jean-Sebastien Berthy 
+ 298          *----------------------------------------------------------------------------
+ 299          * PARAMS:  
+ 300          * return: 
+ 301          * eeprom_t eep :  
+ 302          *       eep = EEPROM_NOT_BUSY
+C51 COMPILER V9.53.0.0   FLASH_API                                                         03/04/2015 20:41:31 PAGE 6   
+
+ 303          *       eep = EEPROM_BUSY 
+ 304          *----------------------------------------------------------------------------
+ 305          * PURPOSE: 
+ 306          * This function allows to check if eeprom is busy or not.
+ 307          *****************************************************************************
+ 308          * NOTE: 
+ 309          * To use this function the constante __API_EEPROM_BUSY must be define in
+ 310          * C header file api_cc01.h.
+ 311          *****************************************************************************/
+ 312          #ifdef __API_EEPROM_BUSY
+ 313          eeprom_t __api_eeprom_busy (void)
+ 314          { 
+ 315   1        return(EECON & 0x01);
+ 316   1      }
+ 317          #endif
+ 318          
+ 319          /*F**************************************************************************
+ 320          * NAME: api_rd_eeprom                                            
+ 321          *----------------------------------------------------------------------------
+ 322          * AUTHOR: Jean-Sebastien Berthy 
+ 323          *----------------------------------------------------------------------------
+ 324          * PARAMS:  
+ 325          * Uchar xdata *address : address to read
+ 326          * return: 
+ 327          *----------------------------------------------------------------------------
+ 328          * PURPOSE: 
+ 329          * This function allows to read a byte in Eeprom.
+ 330          *****************************************************************************
+ 331          * NOTE: 
+ 332          * To use this function the constante __API_RD_EEPROM must be define in
+ 333          * C header file api_cc01.h.
+ 334          *****************************************************************************/
+ 335          #ifdef __API_RD_EEPROM_BYTE
+ 336          Uchar __api_rd_eeprom_byte(Uchar xdata *address)
+ 337          {  
+ 338   1        Uchar val; 
+ 339   1      
+ 340   1        EECON = 0x02;
+ 341   1        val   = *address;  
+ 342   1        EECON = 0x00;
+ 343   1      
+ 344   1        return (val);
+ 345   1      }
+ 346          #endif
+ 347          
+ 348          /*F**************************************************************************
+ 349          * NAME: api_wr_eeprom_byte                                            
+ 350          *----------------------------------------------------------------------------
+ 351          * AUTHOR: Jean-Sebastien Berthy 
+ 352          *----------------------------------------------------------------------------
+ 353          * PARAMS:  
+ 354          * Uchar xdata* address : address to read
+ 355          * Uchar value : data to write
+ 356          * return: 
+ 357          *----------------------------------------------------------------------------
+ 358          * PURPOSE: 
+ 359          * This function allows to program a byte in Eeprom.
+ 360          *****************************************************************************
+ 361          * NOTE: 
+ 362          * To use this function the constante __API_WR_EEPROM_BYTE must be define in
+ 363          * C header file api_cc01.h.
+ 364          *****************************************************************************/
+C51 COMPILER V9.53.0.0   FLASH_API                                                         03/04/2015 20:41:31 PAGE 7   
+
+ 365          #ifdef __API_WR_EEPROM_BYTE
+ 366          Uchar __api_wr_eeprom_byte (Uchar xdata *address, Uchar value)
+ 367          {
+ 368   1        bit ea_save;
+ 369   1      
+ 370   1        ea_save = EA;
+ 371   1        EA = 0;
+ 372   1        EECON = 0x02;
+ 373   1        *address = value;/* addr is a pointer to external data mem */
+ 374   1        EECON = 0x50;          
+ 375   1        EECON = 0xA0;
+ 376   1        EA = ea_save;
+ 377   1                
+ 378   1        return (1);
+ 379   1      }
+ 380          #endif
+ 381          
+ 382          /*F**************************************************************************
+ 383          * NAME: api_start_isp                                            
+ 384          *----------------------------------------------------------------------------
+ 385          * AUTHOR: Jean-Sebastien Berthy 
+ 386          *----------------------------------------------------------------------------
+ 387          * PARAMS:  
+ 388          * return: 
+ 389          *----------------------------------------------------------------------------
+ 390          * PURPOSE: 
+ 391          *****************************************************************************
+ 392          * NOTE: 
+ 393          * To use this function the constante __API_START_ISP must be define in
+ 394          * C header file api_cc01.h.
+ 395          *****************************************************************************/
+ 396          #ifdef __API_START_ISP
+ 397          void __api_start_isp (void)
+ 398          {
+ 399   1        EA = 0;
+ 400   1        MAP_BOOT;
+ 401   1        __API_JMP_ISP_START();
+ 402   1      }
+ 403          #endif
+ 404          
+ 405          /*F**************************************************************************
+ 406          * NAME: api_start_bootloader                                            
+ 407          *----------------------------------------------------------------------------
+ 408          * AUTHOR: Jean-Sebastien Berthy 
+ 409          *----------------------------------------------------------------------------
+ 410          * PARAMS:  
+ 411          * return: 
+ 412          *----------------------------------------------------------------------------
+ 413          * PURPOSE: 
+ 414          *****************************************************************************
+ 415          * NOTE: 
+ 416          * To use this function the constante __API_START_BOOTLOADER must be define in
+ 417          * C header file.
+ 418          *****************************************************************************/
+ 419          #ifdef __API_START_BOOTLOADER
+ 420          void __api_start_bootloader (void)
+ 421          {
+ 422   1        EA = 0;
+ 423   1        MAP_BOOT;
+ 424   1        __API_JMP_BOOTLOADER();
+ 425   1      }
+ 426          #endif
+C51 COMPILER V9.53.0.0   FLASH_API                                                         03/04/2015 20:41:31 PAGE 8   
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    295    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----       4
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----       6
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

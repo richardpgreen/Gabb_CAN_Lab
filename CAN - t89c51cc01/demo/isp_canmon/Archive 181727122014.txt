@@ -1,0 +1,633 @@
+/* Includes     */
+#include <T89C51CC01.h>
+#include "config.h"
+#include "lcd_drv.h" 
+
+/*C*****************************************************************************
+* FILE_NAME: lcd_task.c                                                            
+*-------------------------------------------------------------------------------
+* FILE_CREATED_BY: Eric TINLOT                                                         
+* $Author: jberthy $
+* $Revision: 1.1.1.1 $
+* $Date: 2001/03/01 15:31:23 $
+*-------------------------------------------------------------------------------
+* FILE_PURPOSE:  DEMOBOARD LCD TASK
+* FILE_CONTENTS:                                                            
+*******************************************************************************/
+
+
+/*  Defines     */
+
+
+#define  LCD_TIMER_16MS 16/BASE_TIME_SCHEDUL  
+#define  LCD_TIMER_6MS   6/BASE_TIME_SCHEDUL  
+
+/* Declarations */
+
+#ifdef MESURE_TASK_LCD
+Uint16	valeur_debut, valeur_fin;
+Uint16  valeur_max = 0;
+#endif 
+
+Uchar xdata state_lcd;
+Uchar xdata lcd_buf_line[16];
+Uchar xdata lcd_id_line;         
+
+Uchar cpt_lcd;
+
+Uchar lcd_wr;
+Uchar state_return,state_lcd_wr;
+
+
+//#define TIMER2_2ms (0xFFFF - (2000*FOSC)/12000) 
+#define TIMER2_2ms   (0xFFFF - 2000) 
+
+/*_____ G L O B A L S ________________________________________________________*/
+
+
+/*_____ P R I V A T E - F U N C T I O N S - D E C L A R A T I O N ____________*/
+
+void init_timer2(void);
+
+
+/* Definitions  */
+//extern Uchar line[2][17];	No longer used
+
+Uchar xdata line[2][17];
+unsigned int value_converted=0x0000; /* converted value */
+unsigned char value_AN4=0x0000; /* converted AN4 value */
+bit end_of_convertion=0; /* software flag */
+unsigned int loop=0x0000;
+int result;
+//unsigned int value=0x0500;
+
+
+/* Prototypes   */
+
+
+void  lcd_cmd_wr(Uchar);
+void  lcd_cmd8_wr(Uchar);
+Uchar lcd_bf(void);  
+void  lcd_data_wr(Uchar);
+void  lcd_ddram_init(Uchar);
+void  lcd_wr_line(void);
+void  clr_lcd_wr(void);
+void  temperature(int);
+int   ADC(void);
+
+
+/*
+** ----------------------------------------------------------------------------
+** task_lcd_init - initialisation of the task
+** ----------------------------------------------------------------------------
+** Inputs: none
+** Outputs: none
+** ----------------------------------------------------------------------------
+*/
+void task_lcd_init(void)
+{
+  state_lcd    = INIT_TEMPO_16MS;
+  state_return = FALSE;
+  state_lcd_wr = DDRAM_INIT; 
+} 
+
+
+
+/*
+** ----------------------------------------------------------------------------
+** task_lcd - task lcd init and update lcd display if needed
+** ----------------------------------------------------------------------------
+** Inputs: none 
+** Outputs: none
+** ----------------------------------------------------------------------------
+** Comments: 
+** ----------------------------------------------------------------------------
+*/
+
+void task_lcd(void)
+{
+static Uchar nb_8bit_mode;
+
+#ifdef MESURE_TASK_LCD
+  valeur_debut = (TH2 << 8) + TL2;
+#endif
+ 
+  switch(state_lcd)
+  {
+
+    case INIT_TEMPO_16MS: 
+    { 
+	  state_return = FALSE;
+      cpt_lcd      = 0;
+      state_lcd    = RUN_TEMPO_16MS;
+      set_lcd_line(1," ATMEL WIRELESS ");
+	  break;
+    }
+   
+    case RUN_TEMPO_16MS:     
+    {
+	  cpt_lcd++;
+      if( cpt_lcd > LCD_TIMER_16MS )     /*  waiting after lcd power supply = 4.5V for 16ms */    
+      {
+        state_lcd    = MODE_8_BIT; 
+        nb_8bit_mode = 0;
+      }
+      break;
+    }  
+
+    case MODE_8_BIT:
+    { 
+      lcd_cmd8_wr(LCD_FCTSET8 | LCD_8BIT);                     /* in mode 8 bits */
+      nb_8bit_mode++;
+	  state_lcd = INIT_TEMPO_5MS; 
+      
+      if( nb_8bit_mode>=3 )      /* send 3 times same command to lcd */          
+      {
+        state_lcd = CONFIG_LCD; 
+      }
+      break;
+    }
+    
+    case INIT_TEMPO_5MS: 
+    { 
+      cpt_lcd = 0;
+      state_lcd = RUN_TEMPO_5MS;
+      break;
+    }
+
+    case RUN_TEMPO_5MS:     
+    {
+	  cpt_lcd++;
+      if( cpt_lcd > (LCD_TIMER_6MS) )      /* waiting after lcd Reset for 5 ms */          
+      {
+        state_lcd = MODE_8_BIT; 
+      }
+      break;
+    }  
+
+    case CONFIG_LCD: 
+    { 
+	  if(lcd_bf())
+      {
+        lcd_cmd8_wr(LCD_FCTSET8 | LCD_4BIT);                     /* in mode 8 bits */ 
+    	state_lcd = MODE_4_BIT;
+      }        
+      break;
+    }
+
+    case MODE_4_BIT: 
+    { 
+	  if(lcd_bf())
+      {
+        lcd_cmd_wr(LCD_FCTSET  | LCD_4BIT | LCD_2_LINE | LCD_5_10DOTS);   
+        /* 4 bit twice & 2lines & 5*10 dots */ 
+	    state_lcd = LCD_DISPLAY_OFF;
+      }        
+      break;
+    }
+
+ 
+    case LCD_DISPLAY_OFF: 
+    { 
+	  if(lcd_bf())
+      {
+        lcd_cmd_wr(LCD_DISPLAY | LCD_DISP_OFF | LCD_CURS_OFF );   /* cursor off display on */
+	    state_lcd = LCD_MODE;
+      }        
+      break;
+    }
+ 
+	
+	case LCD_MODE: 
+    { 
+	  if(lcd_bf())
+      {
+        lcd_cmd_wr(LCD_SET | LCD_INC );  /* increment mode */
+	    state_lcd = LCD_CURSOR;
+      }        
+      break;
+    }
+ 	
+	case LCD_CURSOR: 
+    { 
+	  if(lcd_bf())
+      {
+      	lcd_cmd_wr( LCD_CURS );    /* cursor shift to the left */
+	    state_lcd = LCD_DISPLAY_ON;
+      }        
+      break;
+    }
+
+	case LCD_DISPLAY_ON: 
+    { 
+	  if(lcd_bf())
+      {
+        lcd_cmd_wr(LCD_DISPLAY | LCD_DISP_ON | LCD_CURS_OFF ); /* display & cursor off */
+        state_lcd = LCD_CLEAR;
+      }        
+      break;
+    }
+
+	case LCD_CLEAR: 
+    { 
+	  if(lcd_bf())
+      {
+        lcd_cmd_wr(LCD_CLR);        /* CLEAR ALL DIPLAY with space characters */
+        state_lcd = LCD_READY;
+      }        
+      break;
+    }
+
+	case LCD_READY: 
+    { 
+	  if(lcd_bf())
+      {
+       state_lcd = LCD_WR;
+      }        
+      break;
+    }
+
+    case LCD_WR:
+	{
+      if(get_lcd_wr())
+      {
+        lcd_wr_line();  
+	  }        
+      break;	
+    }
+    
+    default:
+	{
+      state_lcd = INIT_TEMPO_16MS;
+      break;	
+    }
+  }
+
+#ifdef MESURE_TASK_LCD
+  valeur_fin = (TH2 << 8) + TL2;
+  if ((valeur_fin - valeur_debut) > valeur_max)
+  {
+    valeur_max = (valeur_fin - valeur_debut);
+  }
+#endif
+}
+
+
+
+          
+
+/*
+****************************************************************************
+* FUNCTION_NAME: lcd_wr_line                                                             
+*---------------------------------------------------------------------------
+* FUNCTION_AUTHOR: E.TINLOT                                                         
+* FUNCTION_DATE: 06.10.1999                                                           
+*---------------------------------------------------------------------------
+* FUNCTION_PURPOSE: send a string of 16 characters (one line) on LCD                                                          
+* FUNCTION_INPUTS:                                                             
+* FUNCTION_OUTPUTS: False or True                                                        
+****************************************************************************
+*/
+void lcd_wr_line(void)
+{
+static Uchar nb_char;     
+
+  switch (state_lcd_wr)
+  {  
+    case DDRAM_INIT:    
+    {  
+      if (lcd_id_line==1)                  /* first line */
+      {
+        lcd_ddram_init(LCD_LINE_1); 
+      }
+      else   
+      {  
+        lcd_ddram_init(LCD_LINE_2);     /* second line */
+      }
+      nb_char = 0;
+      state_lcd_wr = WR_CHAR;
+      break;
+    }
+
+	case WR_CHAR: 
+    { 
+	  if(lcd_bf())
+      {
+        lcd_data_wr(lcd_buf_line[nb_char]);  
+        nb_char++;
+        if ( nb_char>15 )
+        {      
+          clr_lcd_wr();
+	      state_lcd_wr = DDRAM_INIT;  
+        }
+      }
+      break;
+    }
+	
+	default:
+	{
+	  state_lcd_wr = DDRAM_INIT; 
+	  break;
+	}
+  }
+}
+
+ 
+
+/*
+** ----------------------------------------------------------------------------
+** clr_lcd_wr / nothing to print on LCD
+** ----------------------------------------------------------------------------
+** Inputs: none
+** Outputs: none 
+** ----------------------------------------------------------------------------
+*/
+void clr_lcd_wr(void)
+{
+  lcd_wr = FALSE; 
+} 
+  
+
+  
+/*
+** ----------------------------------------------------------------------------
+** get_lcd_wr  /  allow to know if there is something to write on LCD
+** ----------------------------------------------------------------------------
+** Inputs: none
+** Outputs:False or TRUE 
+** ----------------------------------------------------------------------------
+*/
+Uchar get_lcd_wr(void)
+{
+  return(lcd_wr);
+}
+
+/*
+** ----------------------------------------------------------------------------
+** set_lcd_line  /  write line into buffer , set flag for print 
+** ----------------------------------------------------------------------------
+** Inputs: line one or two, and string to print
+** Outputs:none 
+** ----------------------------------------------------------------------------
+*/
+void set_lcd_line(Uchar line,Uchar *string)
+{
+  int h;
+
+  for (h=0 ; h<16 ; h++)
+  {
+    lcd_buf_line[h] = string[h];
+  }
+  lcd_id_line  = line;   
+  lcd_wr = TRUE; 
+}  
+
+/*F**************************************************************************
+* FUNCTION_NAME: init_timer_2                                            
+*-------------------------------------------------------------------------
+* FUNCTION_AUTHOR: BERTHY J.S.                                              
+* FUNCTION_DATE  : 4/05/00                                                 
+*----------------------------------------------------------------------------
+* FUNCTION_PURPOSE:                          
+* FUNCTION_INPUT
+* FUNCTION_OUTPUTS: void                                                                                                                 
+******************************************************************************/
+void init_timer2(void)
+{
+/* 16 bit auto reload mode */
+/*-------------------------*/
+  T2CON = 0;
+
+  TH2 = 0;
+  TL2 = 0;
+  RCAP2L = LOW(TIMER2_2ms);
+  RCAP2H = HIGH(TIMER2_2ms);
+
+/* enable timer 2 interrupt. */
+/*---------------------------*/
+  ET2 = 1;
+
+/* run timer 2. */
+/*--------------*/
+  TR2 = 1;
+}
+
+
+
+/* RAW Self Made
+A massive if statement to decide what the temperature is.
+
+Uses ADC value obtained
+*/
+
+void temperature(int ADC_Value)
+{
+	unsigned int A;
+	
+	A = ADC_Value;
+  
+    if ( A >= 0x1000 ) {                
+    line[0][0] = '9';
+	  line[0][1] = '3';    
+    }
+    else if ( A >= 0x0500 ) {            /* I use just to show an example */ 
+    line[0][0] = '6';
+	  line[0][1] = '3';     
+    }
+    else {
+    line[0][0] = '3';
+	  line[0][1] = '3';   
+    }
+
+}		
+
+/**
+* @file $RCSfile: Adc_8bits.c,v $
+*
+* Copyright (c) 2004 Atmel.
+*
+* Please read file license.txt for copyright notice.
+*
+* @brief This file is an example to use Adc.
+*
+* This file can be parsed by Doxygen for automatic documentation
+* generation.
+* Put here the functional description of this file within the software
+* architecture of your program.
+*
+* @version $Revision: 1.0 $ $Name: $*/
+int ADC(void)
+{
+	/*Set Pins 3.2 and 3.4 for ADC*/
+	P3_2 = 1;
+	P3_4 = 1;
+	
+		
+	/* configure channel for ADC */ 
+	ADCLK = 0x06; /* Fosc = 16 MHz, Fadsc = 153.8khz */ 
+	ADCON = 0x20; /* Enable the ADC */
+	EA = 1; /* enable interrupts */
+	EADC = 1; /* enable ADC interrupt */
+
+	
+	ADCF = 0xC0;//0xFF;//0xC0;	
+	
+		ADCON &= ~0x07; /* Clear the channel field ADCON[2:0] */
+		ADCON |= 0x04; /* Select channel 4 */
+		ADCON &= ~0x40; /* standard mode */
+		ADCON |= 0x08; /* Start conversion */
+
+		while(!end_of_convertion); /* wait end of convertion */
+		end_of_convertion=0; /* clear software flag */
+		value_AN4=value_converted; /* save converted value */
+	
+	/* de-configure channel for ADC */ 
+
+	ADCF = 0x00;	
+	
+	/*Set Pins 3.2 and 3.4 dor LCD*/
+	
+	P3_2 = 0;
+	P3_4 = 0;
+	
+	
+	if ( value_AN4 >= 0x0100 ) {                
+    line[0][0] = 'H';
+	  line[0][1] = 'I';    
+    }
+    else if ( value_AN4 >= 0x0000 ) {            /* I use just to show an example */ 
+    line[0][0] = 'L';
+	  line[0][1] = 'O';     
+    }
+    else {
+    line[0][0] = 'N';
+	  line[0][1] = 'A';   
+    }
+	
+	/*Return Obtained Integer*/
+	return value_AN4;
+}
+/*** FUNCTION_PURPOSE:Adc interrupt, save ADDH into an unsigned char
+* FUNCTION_INPUTS:void
+* FUNCTION_OUTPUTS:void
+*/
+
+void it_Adc(void) interrupt 8
+{ 
+ADCON &= ~0x10; /* Clear the End of conversion flag */
+value_converted = ADDH; /* save value */
+end_of_convertion=1; /* set flag */
+}
+
+
+void main(void)
+{
+	P0 = 0xFF;
+ 	P1 = 0xFF;
+  init_timer2();
+
+	
+	/* init prescaler for adc clock *//* Fadc = Fperiph/(2*(32-PRS)), PRS -> ADCLK[4:0] */ 
+
+	//ADCLK = 0x06; /* Fosc = 16 MHz, Fadsc = 153.8khz */ 
+	//ADCON = 0x20; /* Enable the ADC */
+
+	EA = 1; /* enable interrupts */
+	EADC = 1; /* enable ADC interrupt */
+  
+	task_lcd_init();
+	
+  line[0][0] = 'X';
+	line[0][1] = 'X';
+ 	line[0][2] = ' ';      
+ 	line[0][3] = 'D';
+ 	line[0][4] = 'E';      
+ 	line[0][5] = 'G';
+  line[0][6] = 'R';      
+  line[0][7] = 'E';
+  line[0][8] = 'E';
+	line[0][9] = 'S';
+ 	line[0][10] = ' ';      
+ 	line[0][11] = 'C';
+	line[0][12] = ' ';      
+ 	line[0][13] = ' ';      
+ 	line[0][14] = ' ';      
+  line[0][15] = ' ';
+  line[1][0] = ' ';
+	line[1][1] = ' ';
+ 	line[1][2] = ' ';      
+ 	line[1][3] = ' ';
+ 	line[1][4] = ' ';      
+ 	line[1][5] = ' ';
+  line[1][6] = ' ';      
+  line[1][7] = ' ';
+  line[1][8] = ' ';
+	line[1][9] = ' ';
+ 	line[1][10] = ' ';      
+ 	line[1][11] = ' ';
+ 	line[1][12] = ' ';      
+ 	line[1][13] = ' ';      
+ 	line[1][14] = ' ';      
+ 	line[1][15] = ' ';        
+	
+	  while(1)
+  {
+	
+		//ADC();
+		
+	//temperature(ADC());
+
+		
+	P1_0 = ~P1_0;
+
+	task_lcd();
+	
+	if(get_lcd_wr()==FALSE)
+		{
+			  	set_lcd_line(1, line[0]);
+		
+		///
+		 /*Set Pins 3.2 and 3.4 for ADC*/
+	  P3_2 = 1;
+	  P3_4 = 1;
+	ADCLK &= 0xFE; //adc clock
+    ADCF = 0x10; //p1.4		
+    ADCON = 0x24; //enable adc and use p1.4
+    //ADCON &= ~0xF8; /* Clear the channel field ADCON[2:0] */
+    //ADCON |= 0x04; /* Select channel 4 */
+    ADCON |= 0x08; /* Start conversion */
+    while((ADCON & 0x10)!= 0x10);         //Wait for conversion to end
+    result = ADDH; //result stored here
+	ADCON &= 0xEF; // clear the adeoc for next conversion
+    //value_AN4 = (ADDH << 2);
+		 
+    ADCON = 0x00; //disable adc
+		
+	  P3_2 = 1;
+	  P3_4 = 1;		
+	
+	
+	if ( result >= 128 ) {                
+    line[0][0] = 'H';
+	  line[0][1] = 'I';    
+    }
+    else if ( result >= 0 ) {            /* I use just to show an example */ 
+    line[0][0] = 'L';
+	  line[0][1] = 'O';     
+    }
+    else {
+    line[0][0] = 'N';
+	  line[0][1] = 'A';   
+    }
+///			
+		
+		}
+	
+	
+	}
+
+	
+	
+	
+
+}

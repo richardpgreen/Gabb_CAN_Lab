@@ -1,0 +1,25 @@
+NEWS - Flash_Api rev1.1.0; Updated: 2001/08/31
+
+               
+ATMEL-Wireless and Microcontrollers 2001
+
+
+DESCRIPTION
+-----------
+Flash Library for T89C51CC01 with booltloader CAN.
+
+
+NEWS
+----
+    2001/08/31  : Creation ( Rev 1.0.0 )
+
+
+DOWNLOAD
+--------
+This software program can download from the Atmel Wireless & Microcontroller website:
+http://www.atmel-wm.com
+
+
+CHANGES
+-------
+  Rev 1.0.0 : Creation

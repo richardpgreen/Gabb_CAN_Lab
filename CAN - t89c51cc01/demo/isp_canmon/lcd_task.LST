@@ -1,0 +1,396 @@
+C51 COMPILER V9.53.0.0   LCD_TASK                                                          03/04/2015 20:41:04 PAGE 1   
+
+
+C51 COMPILER V9.53.0.0, COMPILATION OF MODULE LCD_TASK
+OBJECT MODULE PLACED IN lcd_task.OBJ
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE lcd_task.c OPTIMIZE(8,SPEED) DEFINE(KEIL) DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          /*C*****************************************************************************
+   2          * FILE_NAME: lcd_task.c                                                            
+   3          *-------------------------------------------------------------------------------
+   4          * FILE_CREATED_BY: Eric TINLOT                                                         
+   5          * $Author: jberthy $
+   6          * $Revision: 1.1.1.1 $
+   7          * $Date: 2001/03/01 15:31:23 $
+   8          *-------------------------------------------------------------------------------
+   9          * FILE_PURPOSE:  DEMOBOARD LCD TASK
+  10          * FILE_CONTENTS:                                                            
+  11          *******************************************************************************/
+  12          
+  13          /* Includes     */
+  14          
+  15          #include "config.h"
+  16          #include "lcd_drv.h" 
+  17          #include "schedule.h"
+  18          
+  19          /*  Defines     */
+  20          
+  21          
+  22          #define  LCD_TIMER_16MS 16/BASE_TIME_SCHEDUL  
+  23          #define  LCD_TIMER_6MS   6/BASE_TIME_SCHEDUL  
+  24          
+  25          /* Declarations */
+  26          
+  27          #ifdef MESURE_TASK_LCD
+              Uint16  valeur_debut, valeur_fin;
+              Uint16  valeur_max = 0;
+              #endif 
+  31          
+  32          Uchar xdata state_lcd;
+  33          Uchar xdata lcd_buf_line[16];
+  34          Uchar xdata lcd_id_line;         
+  35          
+  36          Uchar cpt_lcd;
+  37          
+  38          Uchar lcd_wr;
+  39          Uchar state_return,state_lcd_wr;
+  40          
+  41          /* Definitions  */
+  42          extern Uchar line[2][17];
+  43          
+  44          
+  45          /* Prototypes   */
+  46          
+  47          
+  48          void  lcd_cmd_wr(Uchar);
+  49          void  lcd_cmd8_wr(Uchar);
+  50          Uchar lcd_bf(void);  
+  51          void  lcd_data_wr(Uchar);
+  52          void  lcd_ddram_init(Uchar);
+  53          void  lcd_wr_line(void);
+  54          void  clr_lcd_wr(void);
+  55          
+C51 COMPILER V9.53.0.0   LCD_TASK                                                          03/04/2015 20:41:04 PAGE 2   
+
+  56          /*
+  57          ** ----------------------------------------------------------------------------
+  58          ** task_lcd_init - initialisation of the task
+  59          ** ----------------------------------------------------------------------------
+  60          ** Inputs: none
+  61          ** Outputs: none
+  62          ** ----------------------------------------------------------------------------
+  63          */
+  64          void task_lcd_init(void)
+  65          {
+  66   1        state_lcd    = INIT_TEMPO_16MS;
+  67   1        state_return = FALSE;
+  68   1        state_lcd_wr = DDRAM_INIT; 
+  69   1      } 
+  70          
+  71          
+  72          
+  73          /*
+  74          ** ----------------------------------------------------------------------------
+  75          ** task_lcd - task lcd init and update lcd display if needed
+  76          ** ----------------------------------------------------------------------------
+  77          ** Inputs: none 
+  78          ** Outputs: none
+  79          ** ----------------------------------------------------------------------------
+  80          ** Comments: 
+  81          ** ----------------------------------------------------------------------------
+  82          */
+  83          
+  84          void task_lcd(void)
+  85          {
+  86   1      static Uchar nb_8bit_mode;
+  87   1      
+  88   1      #ifdef MESURE_TASK_LCD
+                valeur_debut = (TH2 << 8) + TL2;
+              #endif
+  91   1       
+  92   1        switch(state_lcd)
+  93   1        {
+  94   2      
+  95   2          case INIT_TEMPO_16MS: 
+  96   2          { 
+  97   3          state_return = FALSE;
+  98   3            cpt_lcd      = 0;
+  99   3            state_lcd    = RUN_TEMPO_16MS;
+ 100   3            set_lcd_line(1," ATMEL WIRELESS ");
+ 101   3          break;
+ 102   3          }
+ 103   2         
+ 104   2          case RUN_TEMPO_16MS:     
+ 105   2          {
+ 106   3          cpt_lcd++;
+ 107   3            if( cpt_lcd > LCD_TIMER_16MS )     /*  waiting after lcd power supply = 4.5V for 16ms */    
+ 108   3            {
+ 109   4              state_lcd    = MODE_8_BIT; 
+ 110   4              nb_8bit_mode = 0;
+ 111   4            }
+ 112   3            break;
+ 113   3          }  
+ 114   2      
+ 115   2          case MODE_8_BIT:
+ 116   2          { 
+ 117   3            lcd_cmd8_wr(LCD_FCTSET8 | LCD_8BIT);                     /* in mode 8 bits */
+C51 COMPILER V9.53.0.0   LCD_TASK                                                          03/04/2015 20:41:04 PAGE 3   
+
+ 118   3            nb_8bit_mode++;
+ 119   3          state_lcd = INIT_TEMPO_5MS; 
+ 120   3            
+ 121   3            if( nb_8bit_mode>=3 )      /* send 3 times same command to lcd */          
+ 122   3            {
+ 123   4              state_lcd = CONFIG_LCD; 
+ 124   4            }
+ 125   3            break;
+ 126   3          }
+ 127   2          
+ 128   2          case INIT_TEMPO_5MS: 
+ 129   2          { 
+ 130   3            cpt_lcd = 0;
+ 131   3            state_lcd = RUN_TEMPO_5MS;
+ 132   3            break;
+ 133   3          }
+ 134   2      
+ 135   2          case RUN_TEMPO_5MS:     
+ 136   2          {
+ 137   3          cpt_lcd++;
+ 138   3            if( cpt_lcd > (LCD_TIMER_6MS) )      /* waiting after lcd Reset for 5 ms */          
+ 139   3            {
+ 140   4              state_lcd = MODE_8_BIT; 
+ 141   4            }
+ 142   3            break;
+ 143   3          }  
+ 144   2      
+ 145   2          case CONFIG_LCD: 
+ 146   2          { 
+ 147   3          if(lcd_bf())
+ 148   3            {
+ 149   4              lcd_cmd8_wr(LCD_FCTSET8 | LCD_4BIT);                     /* in mode 8 bits */ 
+ 150   4            state_lcd = MODE_4_BIT;
+ 151   4            }        
+ 152   3            break;
+ 153   3          }
+ 154   2      
+ 155   2          case MODE_4_BIT: 
+ 156   2          { 
+ 157   3          if(lcd_bf())
+ 158   3            {
+ 159   4              lcd_cmd_wr(LCD_FCTSET  | LCD_4BIT | LCD_2_LINE | LCD_5_10DOTS);   
+ 160   4              /* 4 bit twice & 2lines & 5*10 dots */ 
+ 161   4            state_lcd = LCD_DISPLAY_OFF;
+ 162   4            }        
+ 163   3            break;
+ 164   3          }
+ 165   2      
+ 166   2       
+ 167   2          case LCD_DISPLAY_OFF: 
+ 168   2          { 
+ 169   3          if(lcd_bf())
+ 170   3            {
+ 171   4              lcd_cmd_wr(LCD_DISPLAY | LCD_DISP_OFF | LCD_CURS_OFF );   /* cursor off display on */
+ 172   4            state_lcd = LCD_MODE;
+ 173   4            }        
+ 174   3            break;
+ 175   3          }
+ 176   2       
+ 177   2        
+ 178   2        case LCD_MODE: 
+ 179   2          { 
+C51 COMPILER V9.53.0.0   LCD_TASK                                                          03/04/2015 20:41:04 PAGE 4   
+
+ 180   3          if(lcd_bf())
+ 181   3            {
+ 182   4              lcd_cmd_wr(LCD_SET | LCD_INC );  /* increment mode */
+ 183   4            state_lcd = LCD_CURSOR;
+ 184   4            }        
+ 185   3            break;
+ 186   3          }
+ 187   2        
+ 188   2        case LCD_CURSOR: 
+ 189   2          { 
+ 190   3          if(lcd_bf())
+ 191   3            {
+ 192   4              lcd_cmd_wr( LCD_CURS );    /* cursor shift to the left */
+ 193   4            state_lcd = LCD_DISPLAY_ON;
+ 194   4            }        
+ 195   3            break;
+ 196   3          }
+ 197   2      
+ 198   2        case LCD_DISPLAY_ON: 
+ 199   2          { 
+ 200   3          if(lcd_bf())
+ 201   3            {
+ 202   4              lcd_cmd_wr(LCD_DISPLAY | LCD_DISP_ON | LCD_CURS_OFF ); /* display & cursor off */
+ 203   4              state_lcd = LCD_CLEAR;
+ 204   4            }        
+ 205   3            break;
+ 206   3          }
+ 207   2      
+ 208   2        case LCD_CLEAR: 
+ 209   2          { 
+ 210   3          if(lcd_bf())
+ 211   3            {
+ 212   4              lcd_cmd_wr(LCD_CLR);        /* CLEAR ALL DIPLAY with space characters */
+ 213   4              state_lcd = LCD_READY;
+ 214   4            }        
+ 215   3            break;
+ 216   3          }
+ 217   2      
+ 218   2        case LCD_READY: 
+ 219   2          { 
+ 220   3          if(lcd_bf())
+ 221   3            {
+ 222   4             state_lcd = LCD_WR;
+ 223   4            }        
+ 224   3            break;
+ 225   3          }
+ 226   2      
+ 227   2          case LCD_WR:
+ 228   2        {
+ 229   3            if(get_lcd_wr())
+ 230   3            {
+ 231   4              lcd_wr_line();  
+ 232   4          }        
+ 233   3            break;  
+ 234   3          }
+ 235   2          
+ 236   2          default:
+ 237   2        {
+ 238   3            state_lcd = INIT_TEMPO_16MS;
+ 239   3            break;  
+ 240   3          }
+ 241   2        }
+C51 COMPILER V9.53.0.0   LCD_TASK                                                          03/04/2015 20:41:04 PAGE 5   
+
+ 242   1      
+ 243   1      #ifdef MESURE_TASK_LCD
+                valeur_fin = (TH2 << 8) + TL2;
+                if ((valeur_fin - valeur_debut) > valeur_max)
+                {
+                  valeur_max = (valeur_fin - valeur_debut);
+                }
+              #endif
+ 250   1      }
+ 251          
+ 252          
+ 253          
+ 254                    
+ 255          
+ 256          /*
+ 257          ****************************************************************************
+ 258          * FUNCTION_NAME: lcd_wr_line                                                             
+ 259          *---------------------------------------------------------------------------
+ 260          * FUNCTION_AUTHOR: E.TINLOT                                                         
+ 261          * FUNCTION_DATE: 06.10.1999                                                           
+ 262          *---------------------------------------------------------------------------
+ 263          * FUNCTION_PURPOSE: send a string of 16 characters (one line) on LCD                                      
+             -                    
+ 264          * FUNCTION_INPUTS:                                                             
+ 265          * FUNCTION_OUTPUTS: False or True                                                        
+ 266          ****************************************************************************
+ 267          */
+ 268          void lcd_wr_line(void)
+ 269          {
+ 270   1      static Uchar nb_char;     
+ 271   1      
+ 272   1        switch (state_lcd_wr)
+ 273   1        {  
+ 274   2          case DDRAM_INIT:    
+ 275   2          {  
+ 276   3            if (lcd_id_line==1)                  /* first line */
+ 277   3            {
+ 278   4              lcd_ddram_init(LCD_LINE_1); 
+ 279   4            }
+ 280   3            else   
+ 281   3            {  
+ 282   4              lcd_ddram_init(LCD_LINE_2);     /* second line */
+ 283   4            }
+ 284   3            nb_char = 0;
+ 285   3            state_lcd_wr = WR_CHAR;
+ 286   3            break;
+ 287   3          }
+ 288   2      
+ 289   2        case WR_CHAR: 
+ 290   2          { 
+ 291   3          if(lcd_bf())
+ 292   3            {
+ 293   4              lcd_data_wr(lcd_buf_line[nb_char]);  
+ 294   4              nb_char++;
+ 295   4              if ( nb_char>15 )
+ 296   4              {      
+ 297   5                clr_lcd_wr();
+ 298   5              state_lcd_wr = DDRAM_INIT;  
+ 299   5              }
+ 300   4            }
+ 301   3            break;
+ 302   3          }
+C51 COMPILER V9.53.0.0   LCD_TASK                                                          03/04/2015 20:41:04 PAGE 6   
+
+ 303   2        
+ 304   2        default:
+ 305   2        {
+ 306   3          state_lcd_wr = DDRAM_INIT; 
+ 307   3          break;
+ 308   3        }
+ 309   2        }
+ 310   1      }
+ 311          
+ 312           
+ 313          
+ 314          /*
+ 315          ** ----------------------------------------------------------------------------
+ 316          ** clr_lcd_wr / nothing to print on LCD
+ 317          ** ----------------------------------------------------------------------------
+ 318          ** Inputs: none
+ 319          ** Outputs: none 
+ 320          ** ----------------------------------------------------------------------------
+ 321          */
+ 322          void clr_lcd_wr(void)
+ 323          {
+ 324   1        lcd_wr = FALSE; 
+ 325   1      } 
+ 326            
+ 327          
+ 328            
+ 329          /*
+ 330          ** ----------------------------------------------------------------------------
+ 331          ** get_lcd_wr  /  allow to know if there is something to write on LCD
+ 332          ** ----------------------------------------------------------------------------
+ 333          ** Inputs: none
+ 334          ** Outputs:False or TRUE 
+ 335          ** ----------------------------------------------------------------------------
+ 336          */
+ 337          Uchar get_lcd_wr(void)
+ 338          {
+ 339   1        return(lcd_wr);
+ 340   1      }
+ 341          
+ 342          /*
+ 343          ** ----------------------------------------------------------------------------
+ 344          ** set_lcd_line  /  write line into buffer , set flag for print 
+ 345          ** ----------------------------------------------------------------------------
+ 346          ** Inputs: line one or two, and string to print
+ 347          ** Outputs:none 
+ 348          ** ----------------------------------------------------------------------------
+ 349          */
+ 350          void set_lcd_line(Uchar line,Uchar *string)
+ 351          {
+ 352   1        int h;
+ 353   1      
+ 354   1        for (h=0 ; h<16 ; h++)
+ 355   1        {
+ 356   2          lcd_buf_line[h] = string[h];
+ 357   2        }
+ 358   1        lcd_id_line  = line;   
+ 359   1        lcd_wr = TRUE; 
+ 360   1      }  
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    480    ----
+C51 COMPILER V9.53.0.0   LCD_TASK                                                          03/04/2015 20:41:04 PAGE 7   
+
+   CONSTANT SIZE    =     17    ----
+   XDATA SIZE       =     18    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      6       4
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

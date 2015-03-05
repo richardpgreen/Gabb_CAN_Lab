@@ -1,0 +1,10 @@
+CHANGES - Flash_Api Rev 1.0.0; Updated: 2001/08/31
+
+               
+ATMEL - Wireless and Microcontrollers 2001
+
+
+CHANGES
+-------
+Version 1.0.0 First Release
+

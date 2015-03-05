@@ -1,0 +1,13 @@
+CHANGES - isp_can_monitor; Updated: 14 Septembre 2001
+
+               
+ATMEL - Wireless and Microcontrollers 2001
+
+
+CHANGES
+-------
+Version 1.0.0, 30/04/2001
+- Created
+Version 2.0, 14/09/2001
+- Dedicated to T89C51CC01 with CAN bootloader.
+- When received CAN message "select node", start bootloader execution

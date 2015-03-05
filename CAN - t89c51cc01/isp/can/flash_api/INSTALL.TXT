@@ -1,0 +1,27 @@
+INSTALL - Flash_Api; Updated: 2001/04/23
+               
+
+ATMEL - Wireless and Microcontrollers 2001
+
+
+REQUIREMENTS
+------------
+- T89C51CC01 Component with CAN Bootloader Rev 1.0.0
+- A Keil(c) C Compiler ( Tested with V6.03 )
+- The "In System Programming - Flash Library for T89C51CC01 with CAN bootloader" application Note.
+
+INSTALLATION
+------------
+
+- Hardware : When needed, you can update your T89C51CC01 to the current version ( Rev 1.0.0 ) with the HEX file include in the distribution.
+
+- Add the files flash_api.c and flash_api.a51 to your project
+- Include the files flash_api.h and config.h to your project
+- Be sure to have a correct SFR description file with the 16 bits SFR DPTR
+ ( You can use the t89c51cc01.h file include in this distribution )
+
+CONFIGURATION
+-------------
+- To use the needed functions for Flash Access, you need to configure the correct define in flash_api.h
+( See Application Note :In System Programming - Flash Library for T89C51CC01 with CAN bootloader)
+

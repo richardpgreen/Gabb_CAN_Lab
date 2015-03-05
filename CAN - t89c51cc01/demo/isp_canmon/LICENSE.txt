@@ -1,0 +1,10 @@
+LICENSE - Can_monitor; Updated: 30 April 2001
+               
+
+ATMEL-Wireless and Microcontrollers 2000
+
+
+All software programs are provided 'as is' without warranty of any kind:
+
+Atmel Wireless & Microcontrollers does not state the suitability of the provided materials for any purpose. Atmel Wireless & Microcontrollers hereby disclaim all warranties and conditions with regard to the provided software, including all implied warranties, fitness for a particular purpose, title and non-infringement. In no event will Atmel Wireless & Microcontrollers  be liable for any indirect or consequential damages or any damages whatsoever resulting from the usage of the software program.
+
